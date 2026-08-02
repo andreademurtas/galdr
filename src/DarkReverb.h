@@ -40,9 +40,15 @@ public:
         }
         predelay.assign((size_t) (0.3 * sr) + 8, 0.0f);
         prePos = 0;
+
+        shimmerBuf.assign((size_t) juce::jmax(64, (int) (0.09 * sr)), 0.0f);
+        shimmerWrite = 0;
+        shimmerPhase = 0.0f;
+        lastShimmer = 0.0f;
     }
 
-    void setParams(float size, float damp, float width01, float predelaySeconds)
+    void setParams(float size, float damp, float width01, float predelaySeconds,
+                   float shimmer01 = 0.0f)
     {
         const float decaySeconds = 0.4f * std::pow(40.0f, juce::jlimit(0.0f, 1.0f, size));
         for (int n = 0; n < numLines; ++n)
@@ -52,6 +58,7 @@ public:
         lpCoeff = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * cutoff / (float) sr);
         width = width01;
         preSamples = juce::jlimit(1, (int) predelay.size() - 2, (int) (predelaySeconds * (float) sr));
+        shimmer = juce::jlimit(0.0f, 1.0f, shimmer01);
     }
 
     void process(juce::AudioBuffer<float>& buffer, float mix)
@@ -84,6 +91,10 @@ public:
                     apfPos[a] = 0;
             }
 
+            // shimmer: the previous wet output, pitched an octave up, re-enters the tank
+            if (shimmer > 0.001f)
+                x += shimmer * 0.7f * lastShimmer;
+
             float r[numLines], sum = 0.0f;
             for (int k = 0; k < numLines; ++k)
             {
@@ -104,6 +115,9 @@ public:
                     linePos[k] = 0;
             }
 
+            if (shimmer > 0.001f)
+                lastShimmer = pitchUpOctave(0.5f * (wetL + wetR));
+
             const float mid  = 0.5f * (wetL + wetR);
             const float side = 0.5f * (wetL - wetR) * width;
             wetL = mid + side;
@@ -117,12 +131,46 @@ public:
     }
 
 private:
+    // Cheap dual-tap granular shifter: the read point outruns the write point
+    // at 2x, with a Hann crossfade between two taps half a window apart.
+    float pitchUpOctave(float in)
+    {
+        const int size = (int) shimmerBuf.size();
+        shimmerBuf[(size_t) shimmerWrite] = in;
+
+        shimmerPhase -= 1.0f / (float) size;
+        if (shimmerPhase < 0.0f)
+            shimmerPhase += 1.0f;
+
+        auto tap = [this, size](float phase)
+        {
+            int idx = shimmerWrite - (int) (phase * (float) size);
+            while (idx < 0)
+                idx += size;
+            return shimmerBuf[(size_t) idx];
+        };
+
+        float p2 = shimmerPhase + 0.5f;
+        if (p2 >= 1.0f)
+            p2 -= 1.0f;
+        const float g1 = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::twoPi * shimmerPhase);
+        const float out = tap(shimmerPhase) * g1 + tap(p2) * (1.0f - g1);
+
+        if (++shimmerWrite >= size)
+            shimmerWrite = 0;
+        return out;
+    }
+
     double sr = 44100.0;
     std::vector<float> lines[numLines], apf[3], predelay;
     int lineLen[numLines] {}, linePos[numLines] {}, apfLen[3] {}, apfPos[3] {};
     int prePos = 0, preSamples = 1;
     float lpState[numLines] {}, g[numLines] {};
     float lpCoeff = 0.3f, width = 1.0f;
+
+    std::vector<float> shimmerBuf;
+    int shimmerWrite = 0;
+    float shimmerPhase = 0.0f, lastShimmer = 0.0f, shimmer = 0.0f;
 };
 
 } // namespace galdr

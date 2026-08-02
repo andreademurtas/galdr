@@ -50,6 +50,9 @@ public:
 
 private:
     void updateSettings(int numSamples);
+    void scanMidiControllers(const juce::MidiBuffer&);
+    void processArp(juce::MidiBuffer&, int numSamples);
+    void updateGlobalMods();
     void applyDistortion(juce::AudioBuffer<float>&, double sampleRate);
     void applyCrusher(juce::AudioBuffer<float>&, int osFactor);
     void applyRingMod(juce::AudioBuffer<float>&, double sampleRate);
@@ -83,6 +86,26 @@ private:
     float crushHeld[2] { 0.0f, 0.0f };
     int   crushCount[2] { 0, 0 };
     int   prevVoiceMode = 0;
+
+    // controllers and global mod-matrix values
+    std::atomic<juce::uint32> noteSerial { 0 };
+    float modWheel = 0.0f, globalPressure = 0.0f;
+    float lastVelocity = 0.0f, lastRandom = 0.0f, lastEnv3 = 0.0f, lastFiltEnv = 0.0f;
+    float rmFreqModOct = 0.0f, tremDepthMod = 0.0f, delayMixMod = 0.0f;
+    float revMixMod = 0.0f, bzLvlMod = 0.0f;
+
+    // arpeggiator
+    struct ArpState
+    {
+        juce::SortedSet<int> held;
+        juce::Array<int> heldOrder;
+        float velocities[128] {};
+        int samplesToNext = 0;
+        int gateSamplesLeft = -1;
+        int lastNote = -1;
+        int step = 0;
+        juce::Random rng;
+    } arp;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GaldrAudioProcessor)
 };

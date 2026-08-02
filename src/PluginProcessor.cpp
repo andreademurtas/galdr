@@ -15,6 +15,14 @@ float syncBeats(int index)
                                        1.0f / 3.0f, 0.25f, 1.0f / 6.0f, 0.125f };
     return beats[juce::jlimit(0, 9, index)];
 }
+
+// Arp rate choices have no "Free" entry: index 0 is 1/1.
+float arpBeats(int index)
+{
+    static constexpr float beats[] = { 4.0f, 2.0f, 1.0f, 0.5f, 1.0f / 3.0f,
+                                       0.25f, 1.0f / 6.0f, 0.125f };
+    return beats[juce::jlimit(0, 7, index)];
+}
 }
 
 GaldrAudioProcessor::GaldrAudioProcessor()
@@ -22,6 +30,7 @@ GaldrAudioProcessor::GaldrAudioProcessor()
       apvts(*this, nullptr, "PARAMETERS", createGaldrParameterLayout())
 {
     settings.noteFreqs = tuning.freqs;
+    settings.noteCounter = &noteSerial;
 
     for (int i = 0; i < numVoices; ++i)
         synth.addVoice(new GaldrVoice(settings));
@@ -153,6 +162,42 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
         StringArray { "Poly", "Mono", "Legato" }, 0));
     add(std::make_unique<AudioParameterInt>(ParameterID { pid::bendRange, 1 }, "Bend Range", 1, 48, 2));
 
+    // v0.4: FM / hard sync, drift, third envelope
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fmAmt, 1 }, "FM Amount", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::oscSync, 1 }, "Osc Sync",
+        StringArray { "Sync Off", "Sync On" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::driftAmt, 1 }, "Drift", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::env3A, 1 }, "E3 Attack", envRange, 0.01f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::env3D, 1 }, "E3 Decay", envRange, 0.2f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::env3S, 1 }, "E3 Sustain", zeroOne, 0.7f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::env3R, 1 }, "E3 Release", envRange, 0.3f, seconds));
+
+    // v0.4: arpeggiator
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::arpMode, 1 }, "Arp Mode",
+        StringArray { "Off", "Up", "Down", "Up-Down", "Random", "As Played" }, 0));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::arpRate, 1 }, "Arp Rate",
+        StringArray { "1/1", "1/2", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 5));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::arpOct, 1 }, "Arp Octaves", 1, 4, 1));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::arpGate, 1 }, "Arp Gate",
+        NormalisableRange<float>(0.05f, 1.0f), 0.7f, percent));
+
+    // v0.4: modulation matrix
+    const StringArray modSources { "None", "LFO 1", "LFO 2", "Filter Env", "Env 3",
+                                   "Velocity", "Mod Wheel", "Pressure", "Random" };
+    const StringArray modDests { "None", "Pitch", "Cutoff", "Resonance", "Vowel",
+                                 "Osc 1 Morph", "Osc 2 Morph", "Osc 1 PW", "Osc 2 PW",
+                                 "FM Amount", "Noise Level", "RM Freq", "Trem Depth",
+                                 "Delay Mix", "Reverb Mix", "Blizzard Lvl" };
+    for (int s = 0; s < GaldrVoice::numModSlots; ++s)
+    {
+        add(std::make_unique<AudioParameterChoice>(ParameterID { pid::modSrc[s], 1 },
+            "Mod " + String(s + 1) + " Source", modSources, 0));
+        add(std::make_unique<AudioParameterChoice>(ParameterID { pid::modDst[s], 1 },
+            "Mod " + String(s + 1) + " Dest", modDests, 0));
+        add(std::make_unique<AudioParameterFloat>(ParameterID { pid::modAmt[s], 1 },
+            "Mod " + String(s + 1) + " Amount", NormalisableRange<float>(-1.0f, 1.0f), 0.0f, percent));
+    }
+
     // LFOs
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo1Shape, 1 }, "LFO 1 Shape", lfoShapes, 0));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo1Rate, 1 }, "LFO 1 Rate",
@@ -201,6 +246,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revPre, 1 }, "Predelay",
         NormalisableRange<float>(0.0f, 0.25f, 0.0f, 0.5f), 0.02f, seconds));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revWidth, 1 }, "Width", zeroOne, 1.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revShimmer, 1 }, "Shimmer", zeroOne, 0.0f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revMix, 1 }, "Reverb Mix", zeroOne, 0.25f, percent));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzDensity, 1 }, "Density",
@@ -326,9 +372,22 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
     settings.osc1Morph = raw(pid::osc1Morph);
     settings.osc2Morph = raw(pid::osc2Morph);
     settings.bendRangeSemis = raw(pid::bendRange);
+    settings.fmAmt = raw(pid::fmAmt);
+    settings.oscSync = (int) raw(pid::oscSync);
+    settings.driftAmt = raw(pid::driftAmt);
     settings.ampEnv  = { raw(pid::attack), raw(pid::decay), raw(pid::sustain), raw(pid::release) };
     settings.filtEnv = { raw(pid::fAttack), raw(pid::fDecay), raw(pid::fSustain), raw(pid::fRelease) };
+    settings.env3    = { raw(pid::env3A), raw(pid::env3D), raw(pid::env3S), raw(pid::env3R) };
     settings.glideSeconds = raw(pid::glide);
+
+    for (int s = 0; s < GaldrVoice::numModSlots; ++s)
+    {
+        settings.modSrc[s] = (int) raw(pid::modSrc[s]);
+        settings.modDst[s] = (int) raw(pid::modDst[s]);
+        settings.modAmt[s] = raw(pid::modAmt[s]);
+    }
+    settings.modWheel = modWheel;
+    settings.globalPressure = globalPressure;
 
     const float blockDt = (float) numSamples / (float) sr;
     auto advance = [blockDt](float& phase, float rate)
@@ -353,6 +412,221 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
     const bool w2 = advance(lfo2Phase, lfoRate(pid::lfo2Rate, pid::lfo2Sync));
     const float v2 = lfoShapeValue((int) raw(pid::lfo2Shape), lfo2Phase, lfo2Held, w2);
     settings.lfoCutoffOctaves = v2 * raw(pid::lfo2Depth) * 3.0f;
+
+    settings.lfo1Value = v1;
+    settings.lfo2Value = v2;
+    updateGlobalMods();
+}
+
+void GaldrAudioProcessor::scanMidiControllers(const juce::MidiBuffer& midi)
+{
+    for (const auto metadata : midi)
+    {
+        const auto msg = metadata.getMessage();
+        if (msg.isController() && msg.getControllerNumber() == 1)
+            modWheel = (float) msg.getControllerValue() / 127.0f;
+        else if (msg.isChannelPressure())
+            globalPressure = (float) msg.getChannelPressureValue() / 127.0f;
+    }
+}
+
+// Global-destination matrix slots use monophonic source values: the LFOs and
+// wheel directly, envelopes/velocity/random from the most recently started voice.
+void GaldrAudioProcessor::updateGlobalMods()
+{
+    GaldrVoice* newest = nullptr;
+    juce::uint32 bestSerial = 0;
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+        if (auto* voice = dynamic_cast<GaldrVoice*>(synth.getVoice(i)))
+            if (voice->isVoiceActive() && voice->getStartSerial() >= bestSerial)
+            {
+                bestSerial = voice->getStartSerial();
+                newest = voice;
+            }
+    if (newest != nullptr)
+    {
+        lastVelocity = newest->getVelocity01();
+        lastRandom   = newest->getRandom01();
+        lastEnv3     = newest->getEnv3Value();
+        lastFiltEnv  = newest->getFiltEnvValue();
+    }
+    else
+    {
+        lastEnv3 = lastFiltEnv = 0.0f;
+    }
+
+    auto sourceValue = [this](int src) -> float
+    {
+        switch (src)
+        {
+            case GaldrVoice::srcLfo1:     return settings.lfo1Value;
+            case GaldrVoice::srcLfo2:     return settings.lfo2Value;
+            case GaldrVoice::srcFiltEnv:  return lastFiltEnv;
+            case GaldrVoice::srcEnv3:     return lastEnv3;
+            case GaldrVoice::srcVelocity: return lastVelocity;
+            case GaldrVoice::srcModWheel: return modWheel;
+            case GaldrVoice::srcPressure: return globalPressure;
+            case GaldrVoice::srcRandom:   return lastRandom;
+            default:                      return 0.0f;
+        }
+    };
+
+    rmFreqModOct = tremDepthMod = delayMixMod = revMixMod = bzLvlMod = 0.0f;
+    for (int s = 0; s < GaldrVoice::numModSlots; ++s)
+    {
+        const int dst = settings.modDst[s];
+        if (dst < GaldrVoice::firstGlobalDest)
+            continue;
+        const float v = sourceValue(settings.modSrc[s]) * settings.modAmt[s];
+        switch (dst)
+        {
+            case GaldrVoice::dstRmFreq:    rmFreqModOct += v * 2.0f; break;
+            case GaldrVoice::dstTremDepth: tremDepthMod += v;        break;
+            case GaldrVoice::dstDelayMix:  delayMixMod += v;         break;
+            case GaldrVoice::dstRevMix:    revMixMod += v;           break;
+            case GaldrVoice::dstBzLvl:     bzLvlMod += v;            break;
+            default: break;
+        }
+    }
+}
+
+// Consumes held notes and emits stepped note events locked to the host tempo.
+void GaldrAudioProcessor::processArp(juce::MidiBuffer& midi, int numSamples)
+{
+    const int mode = (int) raw(pid::arpMode);
+
+    if (mode == 0)
+    {
+        if (arp.lastNote >= 0)
+        {
+            midi.addEvent(juce::MidiMessage::noteOff(1, arp.lastNote), 0);
+            arp.lastNote = -1;
+            arp.gateSamplesLeft = -1;
+        }
+        arp.held.clear();
+        arp.heldOrder.clearQuick();
+        return;
+    }
+
+    juce::MidiBuffer passthrough;
+    for (const auto metadata : midi)
+    {
+        const auto msg = metadata.getMessage();
+        if (msg.isNoteOn())
+        {
+            const int note = msg.getNoteNumber();
+            arp.held.add(note);
+            arp.heldOrder.addIfNotAlreadyThere(note);
+            arp.velocities[note] = msg.getFloatVelocity();
+        }
+        else if (msg.isNoteOff())
+        {
+            arp.held.removeValue(msg.getNoteNumber());
+            arp.heldOrder.removeFirstMatchingValue(msg.getNoteNumber());
+        }
+        else
+        {
+            passthrough.addEvent(msg, metadata.samplePosition);
+        }
+    }
+    midi.swapWith(passthrough);
+
+    const float beats = arpBeats((int) raw(pid::arpRate));
+    const int interval = juce::jmax(64, (int) (beats * 60.0f / hostBpm * (float) sr));
+    const int gateLen = juce::jmax(32, (int) ((float) interval * raw(pid::arpGate)));
+    const int octaves = (int) raw(pid::arpOct);
+
+    auto emitNoteOff = [this, &midi](int position)
+    {
+        midi.addEvent(juce::MidiMessage::noteOff(1, arp.lastNote), position);
+        arp.lastNote = -1;
+        arp.gateSamplesLeft = -1;
+    };
+
+    int pos = 0;
+    while (pos < numSamples)
+    {
+        int next = numSamples;
+        if (arp.gateSamplesLeft >= 0)
+            next = juce::jmin(next, pos + arp.gateSamplesLeft);
+        next = juce::jmin(next, pos + arp.samplesToNext);
+
+        const int advanceBy = next - pos;
+        if (arp.gateSamplesLeft >= 0)
+            arp.gateSamplesLeft -= advanceBy;
+        arp.samplesToNext -= advanceBy;
+        pos = next;
+
+        const int eventPos = juce::jmin(pos, numSamples - 1);
+
+        if (arp.gateSamplesLeft == 0 && arp.lastNote >= 0)
+            emitNoteOff(eventPos);
+
+        if (arp.samplesToNext <= 0)
+        {
+            if (arp.lastNote >= 0)
+                emitNoteOff(eventPos);
+
+            if (! arp.held.isEmpty())
+            {
+                // expand held notes across octaves in the requested order
+                juce::Array<int> pattern;
+                auto addExpanded = [&pattern, octaves](const juce::Array<int>& base)
+                {
+                    for (int oct = 0; oct < octaves; ++oct)
+                        for (int note : base)
+                            pattern.add(juce::jmin(127, note + 12 * oct));
+                };
+
+                juce::Array<int> ascending;
+                for (int i = 0; i < arp.held.size(); ++i)
+                    ascending.add(arp.held[i]);
+
+                switch (mode)
+                {
+                    case 1: addExpanded(ascending); break;                       // up
+                    case 2:
+                    {
+                        juce::Array<int> descending(ascending);
+                        std::reverse(descending.begin(), descending.end());
+                        addExpanded(descending);
+                        break;                                                   // down
+                    }
+                    case 3:
+                    {
+                        addExpanded(ascending);
+                        juce::Array<int> back(pattern);
+                        std::reverse(back.begin(), back.end());
+                        for (int i = 1; i < back.size() - 1; ++i)
+                            pattern.add(back[i]);
+                        break;                                                   // up-down
+                    }
+                    case 5: addExpanded(arp.heldOrder); break;                   // as played
+                    default: addExpanded(ascending); break;                      // random picks below
+                }
+
+                if (! pattern.isEmpty())
+                {
+                    int index;
+                    if (mode == 4)
+                        index = arp.rng.nextInt(pattern.size());
+                    else
+                        index = arp.step % pattern.size();
+                    ++arp.step;
+
+                    const int note = pattern[index];
+                    const float vel = arp.velocities[juce::jlimit(0, 127, note % 128) % 128] > 0.0f
+                                          ? arp.velocities[juce::jlimit(0, 127, note) % 128]
+                                          : 0.8f;
+                    midi.addEvent(juce::MidiMessage::noteOn(1, note,
+                                      vel > 0.0f ? vel : 0.8f), eventPos);
+                    arp.lastNote = note;
+                    arp.gateSamplesLeft = gateLen;
+                }
+            }
+            arp.samplesToNext = interval;
+        }
+    }
 }
 
 void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer, double sampleRate)
@@ -410,7 +684,7 @@ void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer, int osF
 void GaldrAudioProcessor::applyRingMod(juce::AudioBuffer<float>& buffer, double sampleRate)
 {
     const float mix = raw(pid::rmMix);
-    const float inc = raw(pid::rmFreq) / (float) sampleRate;
+    const float inc = raw(pid::rmFreq) * std::exp2(rmFreqModOct) / (float) sampleRate;
     const int n = buffer.getNumSamples();
 
     if (mix < 0.001f)
@@ -436,7 +710,7 @@ void GaldrAudioProcessor::applyRingMod(juce::AudioBuffer<float>& buffer, double 
 
 void GaldrAudioProcessor::applyTremolo(juce::AudioBuffer<float>& buffer)
 {
-    const float depth = raw(pid::tremDepth);
+    const float depth = juce::jlimit(0.0f, 1.0f, raw(pid::tremDepth) + tremDepthMod);
     const float tremBeats = syncBeats((int) raw(pid::tremSync));
     const float rate = tremBeats > 0.0f ? hostBpm / 60.0f / tremBeats : raw(pid::tremRate);
     const bool sine = (int) raw(pid::tremShape) == 1;
@@ -468,7 +742,7 @@ void GaldrAudioProcessor::applyTremolo(juce::AudioBuffer<float>& buffer)
 
 void GaldrAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer)
 {
-    const float mix = raw(pid::delayMix);
+    const float mix = juce::jlimit(0.0f, 1.0f, raw(pid::delayMix) + delayMixMod);
     const float fb = raw(pid::delayFb);
     const float delayBeats = syncBeats((int) raw(pid::delaySync));
     const float timeSeconds = delayBeats > 0.0f
@@ -493,8 +767,9 @@ void GaldrAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer)
 
 void GaldrAudioProcessor::applyReverbAndGain(juce::AudioBuffer<float>& buffer)
 {
-    const float mix = raw(pid::revMix);
-    darkReverb.setParams(raw(pid::revSize), raw(pid::revDamp), raw(pid::revWidth), raw(pid::revPre));
+    const float mix = juce::jlimit(0.0f, 1.0f, raw(pid::revMix) + revMixMod);
+    darkReverb.setParams(raw(pid::revSize), raw(pid::revDamp), raw(pid::revWidth),
+                         raw(pid::revPre), raw(pid::revShimmer));
     if (mix > 0.001f)
         darkReverb.process(buffer, mix);
 
@@ -524,11 +799,14 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     keyboardState.processNextMidiBuffer(midiMessages, 0, numSamples, true);
     buffer.clear();
 
+    scanMidiControllers(midiMessages);
     updateSettings(numSamples);
+    processArp(midiMessages, numSamples);
     synth.renderNextBlock(buffer, midiMessages, 0, numSamples);
 
     blizzard.process(buffer, raw(pid::bzDensity), raw(pid::bzSize),
-                     raw(pid::bzPitch), raw(pid::bzSpread), raw(pid::bzLvl));
+                     raw(pid::bzPitch), raw(pid::bzSpread),
+                     juce::jlimit(0.0f, 1.0f, raw(pid::bzLvl) + bzLvlMod));
 
     // The nonlinear stages run oversampled at 2x to keep aliasing down.
     {

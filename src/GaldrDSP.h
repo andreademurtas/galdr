@@ -78,6 +78,12 @@ struct UnisonOsc
 {
     BlepOsc voices[maxUnison];
 
+    void resetPhases()
+    {
+        for (auto& v : voices)
+            v.phase = 0.0f;
+    }
+
     void randomisePhases(juce::Random& rng)
     {
         for (auto& v : voices)

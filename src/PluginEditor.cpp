@@ -7,7 +7,7 @@
 namespace
 {
 constexpr int baseW = 1220;
-constexpr int baseH = 826;
+constexpr int baseH = 986;
 
 const char* tipFor(const juce::String& id)
 {
@@ -17,6 +17,9 @@ const char* tipFor(const juce::String& id)
         { pid::osc1Morph,  "Wavetable position: sine, triangle, saw, square, grim (Wavetable mode)" },
         { pid::osc2Morph,  "Wavetable position: sine, triangle, saw, square, grim (Wavetable mode)" },
         { pid::osc2Semi,   "+7 semitones gives a power-chord drone" },
+        { pid::fmAmt,      "Osc 2 frequency-modulates osc 1: bells, screams, metal" },
+        { pid::oscSync,    "Hard-syncs osc 1 to osc 2's cycle: aggressive ripping timbres" },
+        { pid::driftAmt,   "Slow random pitch drift per voice: old hardware instability" },
         { pid::filterDrive,"Saturation before the filter" },
         { pid::vowel,      "Vowel morph A-E-I-O-U (Formant filter type only)" },
         { pid::crushBits,  "Bit depth reduction" },
@@ -39,6 +42,10 @@ const char* tipFor(const juce::String& id)
         { pid::bzPitch,    "Centre frequency of the grains" },
         { pid::bzSpread,   "Random pitch and stereo scatter of the grains" },
         { pid::revPre,     "Predelay before the cavern answers" },
+        { pid::revShimmer, "Feeds the tail back one octave up: a spectral choir rising" },
+        { pid::arpMode,    "Arpeggiator pattern; Off disables it" },
+        { pid::arpRate,    "Arp step length, locked to the host tempo" },
+        { pid::arpGate,    "How much of each step the note sustains" },
     };
     auto it = tips.find(id);
     return it != tips.end() ? it->second : nullptr;
@@ -52,16 +59,19 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
       scope(p.scopeFifo),
       spectrum(p.spectrumFifo, [&p] { return p.getSampleRate(); })
 {
-    sections.reserve(20);
+    sections.reserve(24);
 
     // ---- row 1: sound sources and filter
     {
         auto& s = addSection("Oscillator I", { 12, 80, 280, 238 });
-        addCombo(comboRow(s), pid::osc1Wave);
+        auto& c = comboRow(s);
+        addCombo(c, pid::osc1Wave);
+        addCombo(c, pid::oscSync);
         auto& r1 = knobRow(s);
         addKnob(r1, pid::osc1Oct, "Octave");
         addKnob(r1, pid::osc1Uni, "Unison");
         addKnob(r1, pid::osc1Det, "Detune");
+        addKnob(r1, pid::fmAmt, "FM");
         auto& r2 = knobRow(s);
         addKnob(r2, pid::osc1Spread, "Spread");
         addKnob(r2, pid::osc1PW, "PW");
@@ -103,11 +113,12 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::keytrack, "Track");
         auto& r2 = knobRow(s);
         addKnob(r2, pid::vowel, "Vowel");
+        addKnob(r2, pid::driftAmt, "Drift");
     }
 
     // ---- row 2: envelopes, lfos, performance
     {
-        auto& s = addSection("Amp Envelope", { 12, 324, 250, 144 });
+        auto& s = addSection("Amp Envelope", { 12, 324, 240, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::attack, "Attack");
         addKnob(r, pid::decay, "Decay");
@@ -115,7 +126,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::release, "Release");
     }
     {
-        auto& s = addSection("Filter Envelope", { 270, 324, 250, 144 });
+        auto& s = addSection("Filter Envelope", { 260, 324, 240, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::fAttack, "Attack");
         addKnob(r, pid::fDecay, "Decay");
@@ -123,7 +134,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::fRelease, "Release");
     }
     {
-        auto& s = addSection("LFO I / Vibrato", { 528, 324, 208, 144 });
+        auto& s = addSection("LFO I / Vibrato", { 508, 324, 204, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::lfo1Shape);
         addCombo(c, pid::lfo1Sync);
@@ -132,7 +143,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::lfo1Depth, "Depth");
     }
     {
-        auto& s = addSection("LFO II / Filter", { 744, 324, 208, 144 });
+        auto& s = addSection("LFO II / Filter", { 720, 324, 204, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::lfo2Shape);
         addCombo(c, pid::lfo2Sync);
@@ -141,7 +152,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::lfo2Depth, "Depth");
     }
     {
-        auto& s = addSection("Perform / Ring", { 960, 324, 248, 144 });
+        auto& s = addSection("Perform / Ring", { 932, 324, 276, 144 });
         addCombo(comboRow(s), pid::voiceMode);
         auto& r = knobRow(s);
         addKnob(r, pid::glide, "Glide");
@@ -153,7 +164,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
 
     // ---- row 3: fx chain
     {
-        auto& s = addSection("Distortion", { 12, 474, 236, 144 });
+        auto& s = addSection("Distortion", { 12, 474, 220, 144 });
         addCombo(comboRow(s), pid::distType);
         auto& r = knobRow(s);
         addKnob(r, pid::distDrive, "Drive");
@@ -161,21 +172,21 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::distMix, "Mix");
     }
     {
-        auto& s = addSection("Crusher", { 256, 474, 170, 144 });
+        auto& s = addSection("Crusher", { 240, 474, 160, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::crushBits, "Bits");
         addKnob(r, pid::crushRate, "Downsmp");
         addKnob(r, pid::crushMix, "Mix");
     }
     {
-        auto& s = addSection("Chorus", { 434, 474, 170, 144 });
+        auto& s = addSection("Chorus", { 408, 474, 160, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::chorusRate, "Rate");
         addKnob(r, pid::chorusDepth, "Depth");
         addKnob(r, pid::chorusMix, "Mix");
     }
     {
-        auto& s = addSection("Tremolo", { 612, 474, 166, 144 });
+        auto& s = addSection("Tremolo", { 576, 474, 160, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::tremShape);
         addCombo(c, pid::tremSync);
@@ -184,7 +195,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::tremDepth, "Depth");
     }
     {
-        auto& s = addSection("Delay", { 786, 474, 170, 144 });
+        auto& s = addSection("Delay", { 744, 474, 164, 144 });
         addCombo(comboRow(s), pid::delaySync);
         auto& r = knobRow(s);
         addKnob(r, pid::delayTime, "Time");
@@ -192,18 +203,51 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::delayMix, "Mix");
     }
     {
-        auto& s = addSection("Reverb", { 964, 474, 244, 144 });
+        auto& s = addSection("Reverb", { 916, 474, 292, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::revSize, "Size");
         addKnob(r, pid::revDamp, "Damp");
         addKnob(r, pid::revPre, "Pre");
         addKnob(r, pid::revWidth, "Width");
+        addKnob(r, pid::revShimmer, "Shim");
         addKnob(r, pid::revMix, "Mix");
     }
 
-    // ---- row 4: blizzard and visualizers
+    // ---- row 4: arpeggiator, third envelope, mod matrix
     {
-        auto& s = addSection("Blizzard", { 12, 624, 340, 118 });
+        auto& s = addSection("Arpeggiator", { 12, 624, 300, 150 });
+        auto& c = comboRow(s);
+        addCombo(c, pid::arpMode);
+        addCombo(c, pid::arpRate);
+        auto& r = knobRow(s);
+        addKnob(r, pid::arpOct, "Octaves");
+        addKnob(r, pid::arpGate, "Gate");
+    }
+    {
+        auto& s = addSection("Envelope 3", { 320, 624, 260, 150 });
+        auto& r = knobRow(s);
+        addKnob(r, pid::env3A, "Attack");
+        addKnob(r, pid::env3D, "Decay");
+        addKnob(r, pid::env3S, "Sustain");
+        addKnob(r, pid::env3R, "Release");
+    }
+    {
+        auto& s = addSection("Mod Matrix", { 588, 624, 620, 150 });
+        for (int slot = 0; slot < GaldrVoice::numModSlots; slot += 2)
+        {
+            auto& r = comboRow(s);
+            addCombo(r, pid::modSrc[slot]);
+            addCombo(r, pid::modDst[slot]);
+            addHSlider(r, pid::modAmt[slot]);
+            addCombo(r, pid::modSrc[slot + 1]);
+            addCombo(r, pid::modDst[slot + 1]);
+            addHSlider(r, pid::modAmt[slot + 1]);
+        }
+    }
+
+    // ---- row 5: blizzard and visualizers
+    {
+        auto& s = addSection("Blizzard", { 12, 780, 340, 118 });
         auto& r = knobRow(s);
         addKnob(r, pid::bzDensity, "Density");
         addKnob(r, pid::bzSize, "Size");
@@ -211,8 +255,8 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::bzSpread, "Spread");
         addKnob(r, pid::bzLvl, "Level");
     }
-    addCustomSection("Oscilloscope", { 360, 624, 420, 118 }, scope);
-    addCustomSection("Spectrum", { 788, 624, 420, 118 }, spectrum);
+    addCustomSection("Oscilloscope", { 360, 780, 420, 118 }, scope);
+    addCustomSection("Spectrum", { 788, 780, 420, 118 }, spectrum);
 
     // ---- preset browser
     refreshPresetList();
@@ -437,6 +481,19 @@ void GaldrAudioProcessorEditor::addCombo(Row& row, const char* paramID)
     row.labels.push_back(nullptr);
 }
 
+void GaldrAudioProcessorEditor::addHSlider(Row& row, const char* paramID)
+{
+    auto* s = hsliders.add(new juce::Slider());
+    s->setSliderStyle(juce::Slider::LinearHorizontal);
+    s->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    s->setPopupDisplayEnabled(true, true, this);
+    addAndMakeVisible(s);
+
+    sliderAttachments.push_back(std::make_unique<SliderAttachment>(processorRef.apvts, paramID, *s));
+    row.comps.push_back(s);
+    row.labels.push_back(nullptr);
+}
+
 void GaldrAudioProcessorEditor::layoutSection(Section& s, float scale)
 {
     auto sc = [scale](int v) { return juce::roundToInt((float) v * scale); };
@@ -497,7 +554,7 @@ void GaldrAudioProcessorEditor::resized()
     presetNext.setBounds(sc(baseW - 32), sc(20), sc(20), sc(26));
 
     keyboard.setKeyWidth(16.0f * scale);
-    keyboard.setBounds(sc(12), sc(748), getWidth() - sc(24), sc(70));
+    keyboard.setBounds(sc(12), sc(904), getWidth() - sc(24), sc(70));
 
     repaint();
 }
@@ -513,8 +570,8 @@ void GaldrAudioProcessorEditor::paint(juce::Graphics& g)
     g.setGradientFill(sky);
     g.fillAll();
 
-    drawRidge(g, 0.70f, 0.20f, 3, juce::Colour(0xff0e0e12));
-    drawRidge(g, 0.84f, 0.14f, 5, juce::Colour(0xff121218));
+    drawRidge(g, 0.72f, 0.20f, 3, juce::Colour(0xff0e0e12));
+    drawRidge(g, 0.86f, 0.14f, 5, juce::Colour(0xff121218));
 
     juce::ColourGradient vignette(juce::Colours::transparentBlack, w * 0.5f, h * 0.45f,
                                   juce::Colour(0xaa000000), 0.0f, 0.0f, true);

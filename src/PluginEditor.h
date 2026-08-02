@@ -46,6 +46,7 @@ private:
     Row& knobRow(Section&);
     void addKnob(Row&, const char* paramID, const juce::String& name);
     void addCombo(Row&, const char* paramID);
+    void addHSlider(Row&, const char* paramID);
     void layoutSection(Section&, float scale);
 
     void refreshPresetList();
@@ -72,6 +73,7 @@ private:
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<juce::ComboBox> combos;
+    juce::OwnedArray<juce::Slider> hsliders;
     std::vector<Section> sections;
 
     using SliderAttachment   = juce::AudioProcessorValueTreeState::SliderAttachment;

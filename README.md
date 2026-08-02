@@ -12,15 +12,21 @@ synthesizer plugin (VST3, CLAP, AU + standalone) with a black-metal soul, built 
 - 12-voice engine with poly, mono and legato modes: two band-limited (PolyBLEP)
   oscillators, up to 7-voice unison with detune and stereo spread, sub oscillator
   and white/pink noise
+- FM (osc 2 modulates osc 1) and hard sync for aggressive metallic timbres,
+  plus per-voice analog drift
 - Morphing wavetable mode: 32 mip-mapped frames sweeping from sine through saw
   to an inharmonic "grim" spectrum
 - Multimode filter (LP 12/24 dB, HP, BP and vowel formant) with drive, dedicated
   envelope and keytracking
+- 8-slot modulation matrix (LFOs, envelopes, velocity, mod wheel, pressure,
+  per-note random) routable to pitch, morph, cutoff, FM, FX sends and more,
+  with a free third envelope
+- Tempo-synced arpeggiator (up/down/up-down/random/as-played, up to 4 octaves)
 - Two LFOs, glide, separate amp and filter envelopes
 - MPE-friendly per-note pitch bend and pressure; Scala (.scl) microtuning
 - Genre FX chain with the nonlinear stages oversampled 2x: four-flavour
   distortion, bitcrusher, ring modulator, chorus, tremolo picking, delay and a
-  dark FDN cavern reverb with predelay
+  dark FDN cavern reverb with predelay and octave-up shimmer
 - "Blizzard": a granular snowstorm texture layer
 - Tempo sync for LFOs, tremolo and delay (musical divisions of the host tempo)
 - Preset browser with factory and user presets, oscilloscope and spectrum

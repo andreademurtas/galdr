@@ -82,6 +82,29 @@ namespace pid
     inline constexpr auto bzSpread  = "bzSpread";
     inline constexpr auto bzLvl     = "bzLvl";
 
+    // v0.4: FM/hard sync, mod matrix, third envelope, arpeggiator, drift, shimmer
+    inline constexpr auto fmAmt      = "fmAmt";
+    inline constexpr auto oscSync    = "oscSync";
+    inline constexpr auto driftAmt   = "driftAmt";
+    inline constexpr auto revShimmer = "revShimmer";
+
+    inline constexpr auto env3A = "env3A";
+    inline constexpr auto env3D = "env3D";
+    inline constexpr auto env3S = "env3S";
+    inline constexpr auto env3R = "env3R";
+
+    inline constexpr auto arpMode = "arpMode";
+    inline constexpr auto arpRate = "arpRate";
+    inline constexpr auto arpOct  = "arpOct";
+    inline constexpr auto arpGate = "arpGate";
+
+    inline constexpr const char* modSrc[8] = { "modSrc1", "modSrc2", "modSrc3", "modSrc4",
+                                               "modSrc5", "modSrc6", "modSrc7", "modSrc8" };
+    inline constexpr const char* modDst[8] = { "modDst1", "modDst2", "modDst3", "modDst4",
+                                               "modDst5", "modDst6", "modDst7", "modDst8" };
+    inline constexpr const char* modAmt[8] = { "modAmt1", "modAmt2", "modAmt3", "modAmt4",
+                                               "modAmt5", "modAmt6", "modAmt7", "modAmt8" };
+
     // fx chain
     inline constexpr auto distType  = "distType";
     inline constexpr auto distDrive = "distDrive";
