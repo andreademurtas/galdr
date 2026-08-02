@@ -5,6 +5,7 @@
 
 #include "PluginProcessor.h"
 #include "BlackMetalLookAndFeel.h"
+#include "Visualizers.h"
 
 class GaldrAudioProcessorEditor : public juce::AudioProcessorEditor
 {
@@ -35,14 +36,21 @@ private:
         juce::Rectangle<int> baseBounds;        // layout at reference size
         juce::Rectangle<int> bounds;            // scaled, set in resized()
         std::vector<Row> rows;
+        juce::Component* custom = nullptr;      // fills the body instead of rows
     };
 
     Section& addSection(const juce::String& title, juce::Rectangle<int> baseBounds);
+    Section& addCustomSection(const juce::String& title, juce::Rectangle<int> baseBounds,
+                              juce::Component& content);
     Row& comboRow(Section&);
     Row& knobRow(Section&);
     void addKnob(Row&, const char* paramID, const juce::String& name);
     void addCombo(Row&, const char* paramID);
     void layoutSection(Section&, float scale);
+
+    void refreshPresetList();
+    void applyPresetIndex(int index);
+    static juce::File presetDirectory();
 
     void drawRidge(juce::Graphics&, float baseY, float amplitude, int seedStep,
                    juce::Colour colour) const;
@@ -51,10 +59,16 @@ private:
     BlackMetalLookAndFeel lnf;
 
     juce::MidiKeyboardComponent keyboard;
+    galdr::ScopeComponent scope;
+    galdr::SpectrumComponent spectrum;
+
     juce::ComboBox presetBox;
-    juce::TextButton saveButton { "Save" }, loadButton { "Load" };
+    juce::TextButton presetPrev { "<" }, presetNext { ">" };
+    juce::TextButton saveButton { "Save" }, loadButton { "Load" }, tuningButton;
     juce::TooltipWindow tooltipWindow { this };
     std::unique_ptr<juce::FileChooser> chooser;
+    juce::Array<juce::File> userPresetFiles;
+    int factoryCount = 0;
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<juce::ComboBox> combos;

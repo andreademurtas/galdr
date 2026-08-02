@@ -70,6 +70,18 @@ namespace pid
     inline constexpr auto rmFreq = "rmFreq";
     inline constexpr auto rmMix  = "rmMix";
 
+    // v0.3: performance, wavetable, reverb predelay, blizzard granular layer
+    inline constexpr auto voiceMode = "voiceMode";
+    inline constexpr auto bendRange = "bendRange";
+    inline constexpr auto osc1Morph = "osc1Morph";
+    inline constexpr auto osc2Morph = "osc2Morph";
+    inline constexpr auto revPre    = "revPre";
+    inline constexpr auto bzDensity = "bzDensity";
+    inline constexpr auto bzSize    = "bzSize";
+    inline constexpr auto bzPitch   = "bzPitch";
+    inline constexpr auto bzSpread  = "bzSpread";
+    inline constexpr auto bzLvl     = "bzLvl";
+
     // fx chain
     inline constexpr auto distType  = "distType";
     inline constexpr auto distDrive = "distDrive";

@@ -7,6 +7,10 @@
 #include <juce_dsp/juce_dsp.h>
 #include "Params.h"
 #include "GaldrVoice.h"
+#include "DarkReverb.h"
+#include "Blizzard.h"
+#include "ScalaTuning.h"
+#include "Visualizers.h"
 
 class GaldrAudioProcessor : public juce::AudioProcessor
 {
@@ -25,7 +29,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; }
+    double getTailLengthSeconds() const override { return 8.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -36,14 +40,19 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    bool loadTuning(const juce::File& sclFile);
+    void resetTuning();
+    juce::String getTuningName() const { return tuning.name; }
+
     juce::AudioProcessorValueTreeState apvts;
     juce::MidiKeyboardState keyboardState;
+    galdr::VisFifo scopeFifo, spectrumFifo;
 
 private:
     void updateSettings(int numSamples);
-    void applyDistortion(juce::AudioBuffer<float>&);
-    void applyCrusher(juce::AudioBuffer<float>&);
-    void applyRingMod(juce::AudioBuffer<float>&);
+    void applyDistortion(juce::AudioBuffer<float>&, double sampleRate);
+    void applyCrusher(juce::AudioBuffer<float>&, int osFactor);
+    void applyRingMod(juce::AudioBuffer<float>&, double sampleRate);
     void applyTremolo(juce::AudioBuffer<float>&);
     void applyDelay(juce::AudioBuffer<float>&);
     void applyReverbAndGain(juce::AudioBuffer<float>&);
@@ -51,12 +60,15 @@ private:
     float raw(const char* id) const { return apvts.getRawParameterValue(id)->load(); }
     float lfoShapeValue(int shape, float phase, float& held, bool wrapped);
 
-    juce::Synthesiser synth;
+    GaldrSynth synth;
     GaldrVoice::Settings settings;
+    galdr::Tuning tuning;
 
+    std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     juce::dsp::Chorus<float> chorus;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 * 2 };
-    juce::Reverb reverb;
+    galdr::DarkReverb darkReverb;
+    galdr::Blizzard blizzard;
 
     juce::SmoothedValue<float> delaySamplesSm, gainSm;
     juce::Random lfoRng;
@@ -70,6 +82,7 @@ private:
     float toneState[2] { 0.0f, 0.0f };
     float crushHeld[2] { 0.0f, 0.0f };
     int   crushCount[2] { 0, 0 };
+    int   prevVoiceMode = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GaldrAudioProcessor)
 };

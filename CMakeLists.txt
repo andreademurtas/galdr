@@ -27,7 +27,7 @@ juce_add_plugin(Galdr
     PLUGIN_MANUFACTURER_CODE Admu
     PLUGIN_CODE Gldr
     VST3_CATEGORIES Instrument Synth
-    FORMATS VST3 Standalone
+    FORMATS VST3 AU Standalone
     PRODUCT_NAME "Galdr")
 
 target_sources(Galdr PRIVATE

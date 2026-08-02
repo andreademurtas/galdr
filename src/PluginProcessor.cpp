@@ -21,10 +21,14 @@ GaldrAudioProcessor::GaldrAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "PARAMETERS", createGaldrParameterLayout())
 {
+    settings.noteFreqs = tuning.freqs;
+
     for (int i = 0; i < numVoices; ++i)
         synth.addVoice(new GaldrVoice(settings));
 
     synth.addSound(new SynthSound());
+
+    galdr::Wavetable::global(); // build the tables up front, off the audio thread
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
@@ -70,7 +74,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
             return String(roundToInt(value)) + " ct";
         });
 
-    const StringArray waveNames { "Saw", "Square", "Pulse", "Triangle", "Sine" };
+    const auto perSecond = AudioParameterFloatAttributes()
+        .withStringFromValueFunction([](float value, int)
+        {
+            return String(value, 1) + " /s";
+        });
+
+    const StringArray waveNames { "Saw", "Square", "Pulse", "Triangle", "Sine", "Wavetable" };
     const StringArray lfoShapes { "Sine", "Triangle", "Saw", "Square", "S&H" };
     const StringArray syncNames { "Free", "2/1", "1/1", "1/2", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
 
@@ -92,6 +102,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1PW, 1 }, "Osc 1 PW",
         NormalisableRange<float>(0.05f, 0.95f), 0.5f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1Lvl, 1 }, "Osc 1 Level", zeroOne, 0.8f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1Morph, 1 }, "Osc 1 Morph", zeroOne, 0.5f, percent));
 
     // OSC 2
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::osc2Wave, 1 }, "Osc 2 Wave", waveNames, 0));
@@ -104,6 +115,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2PW, 1 }, "Osc 2 PW",
         NormalisableRange<float>(0.05f, 0.95f), 0.5f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2Lvl, 1 }, "Osc 2 Level", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2Morph, 1 }, "Osc 2 Morph", zeroOne, 0.5f, percent));
 
     // SUB + NOISE
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::subWave, 1 }, "Sub Wave",
@@ -137,6 +149,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fRelease, 1 }, "F.Release", envRange, 0.3f, seconds));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::glide, 1 }, "Glide",
         NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.0f, seconds));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::voiceMode, 1 }, "Voice Mode",
+        StringArray { "Poly", "Mono", "Legato" }, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::bendRange, 1 }, "Bend Range", 1, 48, 2));
 
     // LFOs
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo1Shape, 1 }, "LFO 1 Shape", lfoShapes, 0));
@@ -183,8 +198,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revSize, 1 }, "Size", zeroOne, 0.8f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revDamp, 1 }, "Damp", zeroOne, 0.3f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revPre, 1 }, "Predelay",
+        NormalisableRange<float>(0.0f, 0.25f, 0.0f, 0.5f), 0.02f, seconds));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revWidth, 1 }, "Width", zeroOne, 1.0f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revMix, 1 }, "Reverb Mix", zeroOne, 0.25f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzDensity, 1 }, "Density",
+        NormalisableRange<float>(0.5f, 200.0f, 0.0f, 0.4f), 20.0f, perSecond));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzSize, 1 }, "Grain Size",
+        NormalisableRange<float>(0.01f, 0.5f, 0.0f, 0.5f), 0.08f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzPitch, 1 }, "Pitch",
+        NormalisableRange<float>(100.0f, 8000.0f, 0.0f, 0.3f), 900.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzSpread, 1 }, "Spread", zeroOne, 0.5f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzLvl, 1 }, "Level", zeroOne, 0.0f, percent));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::rmFreq, 1 }, "RM Freq",
         NormalisableRange<float>(20.0f, 5000.0f, 0.0f, 0.3f), 250.0f, hertz));
@@ -216,8 +242,13 @@ void GaldrAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     delayLine.setMaximumDelayInSamples((int) std::ceil(2.0 * sampleRate));
     delayLine.reset();
 
-    reverb.setSampleRate(sampleRate);
-    reverb.reset();
+    darkReverb.prepare(sampleRate);
+    blizzard.prepare(sampleRate);
+
+    oversampling = std::make_unique<juce::dsp::Oversampling<float>>(
+        (size_t) channels, 1, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true);
+    oversampling->initProcessing((size_t) samplesPerBlock);
+    setLatencySamples(juce::roundToInt(oversampling->getLatencyInSamples()));
 
     delaySamplesSm.reset(sampleRate, 0.1);
     delaySamplesSm.setCurrentAndTargetValue((float) (0.45 * sampleRate));
@@ -254,6 +285,13 @@ float GaldrAudioProcessor::lfoShapeValue(int shape, float phase, float& held, bo
 
 void GaldrAudioProcessor::updateSettings(int numSamples)
 {
+    const int voiceMode = (int) raw(pid::voiceMode);
+    if (voiceMode != prevVoiceMode)
+    {
+        prevVoiceMode = voiceMode;
+        synth.setMode(voiceMode);
+    }
+
     settings.osc1Wave   = (galdr::Wave) (int) raw(pid::osc1Wave);
     settings.osc1Oct    = (int) raw(pid::osc1Oct);
     settings.osc1Uni    = (int) raw(pid::osc1Uni);
@@ -285,6 +323,9 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
     settings.keytrack    = raw(pid::keytrack);
 
     settings.vowel = raw(pid::vowel);
+    settings.osc1Morph = raw(pid::osc1Morph);
+    settings.osc2Morph = raw(pid::osc2Morph);
+    settings.bendRangeSemis = raw(pid::bendRange);
     settings.ampEnv  = { raw(pid::attack), raw(pid::decay), raw(pid::sustain), raw(pid::release) };
     settings.filtEnv = { raw(pid::fAttack), raw(pid::fDecay), raw(pid::fSustain), raw(pid::fRelease) };
     settings.glideSeconds = raw(pid::glide);
@@ -314,7 +355,7 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
     settings.lfoCutoffOctaves = v2 * raw(pid::lfo2Depth) * 3.0f;
 }
 
-void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
+void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer, double sampleRate)
 {
     const int type = (int) raw(pid::distType);
     const float drive = raw(pid::distDrive);
@@ -323,7 +364,7 @@ void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
         return;
 
     const float toneCoeff = 1.0f - std::exp(-juce::MathConstants<float>::twoPi
-                                            * raw(pid::distTone) / (float) sr);
+                                            * raw(pid::distTone) / (float) sampleRate);
 
     for (int ch = 0; ch < buffer.getNumChannels() && ch < 2; ++ch)
     {
@@ -340,12 +381,12 @@ void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
     }
 }
 
-void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer)
+void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer, int osFactor)
 {
     const int bits = (int) raw(pid::crushBits);
-    const int rate = (int) raw(pid::crushRate);
+    const int rate = (int) raw(pid::crushRate) * osFactor;
     const float mix = raw(pid::crushMix);
-    if ((bits >= 16 && rate <= 1) || mix < 0.001f)
+    if ((bits >= 16 && rate <= osFactor) || mix < 0.001f)
         return;
 
     const float quant = std::exp2((float) (bits - 1));
@@ -366,10 +407,10 @@ void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer)
     }
 }
 
-void GaldrAudioProcessor::applyRingMod(juce::AudioBuffer<float>& buffer)
+void GaldrAudioProcessor::applyRingMod(juce::AudioBuffer<float>& buffer, double sampleRate)
 {
     const float mix = raw(pid::rmMix);
-    const float inc = raw(pid::rmFreq) / (float) sr;
+    const float inc = raw(pid::rmFreq) / (float) sampleRate;
     const int n = buffer.getNumSamples();
 
     if (mix < 0.001f)
@@ -453,21 +494,11 @@ void GaldrAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer)
 void GaldrAudioProcessor::applyReverbAndGain(juce::AudioBuffer<float>& buffer)
 {
     const float mix = raw(pid::revMix);
-    juce::Reverb::Parameters rp;
-    rp.roomSize   = raw(pid::revSize);
-    rp.damping    = raw(pid::revDamp);
-    rp.width      = raw(pid::revWidth);
-    rp.wetLevel   = mix;
-    rp.dryLevel   = 1.0f - mix * 0.5f;
-    rp.freezeMode = 0.0f;
-    reverb.setParameters(rp);
+    darkReverb.setParams(raw(pid::revSize), raw(pid::revDamp), raw(pid::revWidth), raw(pid::revPre));
+    if (mix > 0.001f)
+        darkReverb.process(buffer, mix);
 
     const int n = buffer.getNumSamples();
-    if (buffer.getNumChannels() >= 2)
-        reverb.processStereo(buffer.getWritePointer(0), buffer.getWritePointer(1), n);
-    else
-        reverb.processMono(buffer.getWritePointer(0), n);
-
     gainSm.setTargetValue(raw(pid::gain));
     for (int i = 0; i < n; ++i)
     {
@@ -496,9 +527,24 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     updateSettings(numSamples);
     synth.renderNextBlock(buffer, midiMessages, 0, numSamples);
 
-    applyDistortion(buffer);
-    applyCrusher(buffer);
-    applyRingMod(buffer);
+    blizzard.process(buffer, raw(pid::bzDensity), raw(pid::bzSize),
+                     raw(pid::bzPitch), raw(pid::bzSpread), raw(pid::bzLvl));
+
+    // The nonlinear stages run oversampled at 2x to keep aliasing down.
+    {
+        juce::dsp::AudioBlock<float> block(buffer);
+        auto osBlock = oversampling->processSamplesUp(block);
+        float* chans[2] = { osBlock.getChannelPointer(0),
+                            osBlock.getNumChannels() > 1 ? osBlock.getChannelPointer(1)
+                                                         : osBlock.getChannelPointer(0) };
+        juce::AudioBuffer<float> osBuffer(chans, (int) osBlock.getNumChannels(),
+                                          (int) osBlock.getNumSamples());
+        const double osRate = sr * 2.0;
+        applyDistortion(osBuffer, osRate);
+        applyCrusher(osBuffer, 2);
+        applyRingMod(osBuffer, osRate);
+        oversampling->processSamplesDown(block);
+    }
 
     {
         chorus.setRate(raw(pid::chorusRate));
@@ -511,6 +557,11 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     applyTremolo(buffer);
     applyDelay(buffer);
     applyReverbAndGain(buffer);
+
+    const auto* readL = buffer.getReadPointer(0);
+    const auto* readR = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : readL;
+    scopeFifo.push(readL, readR, numSamples, buffer.getNumChannels());
+    spectrumFifo.push(readL, readR, numSamples, buffer.getNumChannels());
 }
 
 void GaldrAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -523,6 +574,28 @@ void GaldrAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto tree = juce::ValueTree::readFromData(data, (size_t) sizeInBytes); tree.isValid())
         apvts.replaceState(tree);
+
+    const auto tuningPath = apvts.state.getProperty("tuningFile").toString();
+    if (tuningPath.isNotEmpty() && juce::File(tuningPath).existsAsFile())
+        tuning.loadScl(juce::File(tuningPath));
+    else
+        tuning.reset();
+}
+
+bool GaldrAudioProcessor::loadTuning(const juce::File& sclFile)
+{
+    galdr::Tuning candidate;
+    if (! candidate.loadScl(sclFile))
+        return false;
+    tuning = candidate;
+    apvts.state.setProperty("tuningFile", sclFile.getFullPathName(), nullptr);
+    return true;
+}
+
+void GaldrAudioProcessor::resetTuning()
+{
+    tuning.reset();
+    apvts.state.removeProperty("tuningFile", nullptr);
 }
 
 juce::AudioProcessorEditor* GaldrAudioProcessor::createEditor()

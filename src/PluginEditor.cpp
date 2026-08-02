@@ -7,13 +7,15 @@
 namespace
 {
 constexpr int baseW = 1220;
-constexpr int baseH = 708;
+constexpr int baseH = 826;
 
 const char* tipFor(const juce::String& id)
 {
     static const std::map<juce::String, const char*> tips = {
         { pid::osc1Uni,    "Stacked detuned copies of the oscillator: the wall of saws" },
         { pid::osc1Det,    "Unison detune in cents" },
+        { pid::osc1Morph,  "Wavetable position: sine, triangle, saw, square, grim (Wavetable mode)" },
+        { pid::osc2Morph,  "Wavetable position: sine, triangle, saw, square, grim (Wavetable mode)" },
         { pid::osc2Semi,   "+7 semitones gives a power-chord drone" },
         { pid::filterDrive,"Saturation before the filter" },
         { pid::vowel,      "Vowel morph A-E-I-O-U (Formant filter type only)" },
@@ -21,6 +23,7 @@ const char* tipFor(const juce::String& id)
         { pid::crushRate,  "Sample-rate divider: the necro knob" },
         { pid::tremRate,   "13-16 Hz feels like tremolo picking" },
         { pid::glide,      "Portamento time between notes" },
+        { pid::bendRange,  "Pitch-bend range in semitones; set 48 for MPE controllers" },
         { pid::rmFreq,     "Ring modulator carrier frequency" },
         { pid::rmMix,      "Ring modulator amount" },
         { pid::fEnvAmt,    "How much the filter envelope moves the cutoff (bipolar)" },
@@ -31,6 +34,11 @@ const char* tipFor(const juce::String& id)
         { pid::lfo2Sync,   "Locks the rate to the host tempo" },
         { pid::tremSync,   "Locks the rate to the host tempo" },
         { pid::delaySync,  "Locks the delay time to the host tempo" },
+        { pid::voiceMode,  "Poly, mono retrigger, or legato (slides without retriggering)" },
+        { pid::bzDensity,  "Grains per second of the snowstorm layer" },
+        { pid::bzPitch,    "Centre frequency of the grains" },
+        { pid::bzSpread,   "Random pitch and stereo scatter of the grains" },
+        { pid::revPre,     "Predelay before the cavern answers" },
     };
     auto it = tips.find(id);
     return it != tips.end() ? it->second : nullptr;
@@ -40,9 +48,11 @@ const char* tipFor(const juce::String& id)
 GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     : AudioProcessorEditor(&p),
       processorRef(p),
-      keyboard(p.keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard)
+      keyboard(p.keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard),
+      scope(p.scopeFifo),
+      spectrum(p.spectrumFifo, [&p] { return p.getSampleRate(); })
 {
-    sections.reserve(16);
+    sections.reserve(20);
 
     // ---- row 1: sound sources and filter
     {
@@ -55,6 +65,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         auto& r2 = knobRow(s);
         addKnob(r2, pid::osc1Spread, "Spread");
         addKnob(r2, pid::osc1PW, "PW");
+        addKnob(r2, pid::osc1Morph, "Morph");
         addKnob(r2, pid::osc1Lvl, "Level");
     }
     {
@@ -68,6 +79,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         auto& r2 = knobRow(s);
         addKnob(r2, pid::osc2Spread, "Spread");
         addKnob(r2, pid::osc2PW, "PW");
+        addKnob(r2, pid::osc2Morph, "Morph");
         addKnob(r2, pid::osc2Lvl, "Level");
     }
     {
@@ -95,7 +107,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
 
     // ---- row 2: envelopes, lfos, performance
     {
-        auto& s = addSection("Amp Envelope", { 12, 324, 260, 144 });
+        auto& s = addSection("Amp Envelope", { 12, 324, 250, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::attack, "Attack");
         addKnob(r, pid::decay, "Decay");
@@ -103,7 +115,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::release, "Release");
     }
     {
-        auto& s = addSection("Filter Envelope", { 280, 324, 260, 144 });
+        auto& s = addSection("Filter Envelope", { 270, 324, 250, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::fAttack, "Attack");
         addKnob(r, pid::fDecay, "Decay");
@@ -111,7 +123,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::fRelease, "Release");
     }
     {
-        auto& s = addSection("LFO I / Vibrato", { 548, 324, 208, 144 });
+        auto& s = addSection("LFO I / Vibrato", { 528, 324, 208, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::lfo1Shape);
         addCombo(c, pid::lfo1Sync);
@@ -120,7 +132,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::lfo1Depth, "Depth");
     }
     {
-        auto& s = addSection("LFO II / Filter", { 764, 324, 208, 144 });
+        auto& s = addSection("LFO II / Filter", { 744, 324, 208, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::lfo2Shape);
         addCombo(c, pid::lfo2Sync);
@@ -129,9 +141,11 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::lfo2Depth, "Depth");
     }
     {
-        auto& s = addSection("Perform / Ring", { 980, 324, 228, 144 });
+        auto& s = addSection("Perform / Ring", { 960, 324, 248, 144 });
+        addCombo(comboRow(s), pid::voiceMode);
         auto& r = knobRow(s);
         addKnob(r, pid::glide, "Glide");
+        addKnob(r, pid::bendRange, "Bend");
         addKnob(r, pid::rmFreq, "RM Freq");
         addKnob(r, pid::rmMix, "RM Mix");
         addKnob(r, pid::gain, "Master");
@@ -147,21 +161,21 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::distMix, "Mix");
     }
     {
-        auto& s = addSection("Crusher", { 256, 474, 180, 144 });
+        auto& s = addSection("Crusher", { 256, 474, 170, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::crushBits, "Bits");
         addKnob(r, pid::crushRate, "Downsmp");
         addKnob(r, pid::crushMix, "Mix");
     }
     {
-        auto& s = addSection("Chorus", { 444, 474, 180, 144 });
+        auto& s = addSection("Chorus", { 434, 474, 170, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::chorusRate, "Rate");
         addKnob(r, pid::chorusDepth, "Depth");
         addKnob(r, pid::chorusMix, "Mix");
     }
     {
-        auto& s = addSection("Tremolo", { 632, 474, 166, 144 });
+        auto& s = addSection("Tremolo", { 612, 474, 166, 144 });
         auto& c = comboRow(s);
         addCombo(c, pid::tremShape);
         addCombo(c, pid::tremSync);
@@ -170,7 +184,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::tremDepth, "Depth");
     }
     {
-        auto& s = addSection("Delay", { 806, 474, 170, 144 });
+        auto& s = addSection("Delay", { 786, 474, 170, 144 });
         addCombo(comboRow(s), pid::delaySync);
         auto& r = knobRow(s);
         addKnob(r, pid::delayTime, "Time");
@@ -178,39 +192,56 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::delayMix, "Mix");
     }
     {
-        auto& s = addSection("Reverb", { 984, 474, 224, 144 });
+        auto& s = addSection("Reverb", { 964, 474, 244, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::revSize, "Size");
         addKnob(r, pid::revDamp, "Damp");
+        addKnob(r, pid::revPre, "Pre");
         addKnob(r, pid::revWidth, "Width");
         addKnob(r, pid::revMix, "Mix");
     }
 
-    // ---- presets
-    int itemId = 1;
-    for (const auto& preset : presets::all())
-        presetBox.addItem(preset.name, itemId++);
+    // ---- row 4: blizzard and visualizers
+    {
+        auto& s = addSection("Blizzard", { 12, 624, 340, 118 });
+        auto& r = knobRow(s);
+        addKnob(r, pid::bzDensity, "Density");
+        addKnob(r, pid::bzSize, "Size");
+        addKnob(r, pid::bzPitch, "Pitch");
+        addKnob(r, pid::bzSpread, "Spread");
+        addKnob(r, pid::bzLvl, "Level");
+    }
+    addCustomSection("Oscilloscope", { 360, 624, 420, 118 }, scope);
+    addCustomSection("Spectrum", { 788, 624, 420, 118 }, spectrum);
+
+    // ---- preset browser
+    refreshPresetList();
     presetBox.setTextWhenNothingSelected("Presets");
     presetBox.onChange = [this]
     {
         const int idx = presetBox.getSelectedItemIndex();
         if (idx >= 0)
-            presets::apply(processorRef.apvts, idx);
+            applyPresetIndex(idx);
     };
     addAndMakeVisible(presetBox);
 
-    auto presetDir = []
+    auto step = [this](int delta)
     {
-        auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                       .getChildFile("Galdr Presets");
-        dir.createDirectory();
-        return dir;
+        const int total = presetBox.getNumItems();
+        if (total == 0)
+            return;
+        const int current = juce::jmax(0, presetBox.getSelectedItemIndex());
+        presetBox.setSelectedItemIndex(((current + delta) % total + total) % total);
     };
+    presetPrev.onClick = [step] { step(-1); };
+    presetNext.onClick = [step] { step(1); };
+    addAndMakeVisible(presetPrev);
+    addAndMakeVisible(presetNext);
 
-    saveButton.onClick = [this, presetDir]
+    saveButton.onClick = [this]
     {
         chooser = std::make_unique<juce::FileChooser>("Save preset",
-                                                      presetDir().getChildFile("Preset.galdr"),
+                                                      presetDirectory().getChildFile("Preset.galdr"),
                                                       "*.galdr");
         chooser->launchAsync(juce::FileBrowserComponent::saveMode
                                  | juce::FileBrowserComponent::canSelectFiles,
@@ -221,13 +252,14 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
                                      return;
                                  if (auto xml = processorRef.apvts.copyState().createXml())
                                      xml->writeTo(file.withFileExtension("galdr"));
+                                 refreshPresetList();
                              });
     };
     addAndMakeVisible(saveButton);
 
-    loadButton.onClick = [this, presetDir]
+    loadButton.onClick = [this]
     {
-        chooser = std::make_unique<juce::FileChooser>("Load preset", presetDir(), "*.galdr");
+        chooser = std::make_unique<juce::FileChooser>("Load preset", presetDirectory(), "*.galdr");
         chooser->launchAsync(juce::FileBrowserComponent::openMode
                                  | juce::FileBrowserComponent::canSelectFiles,
                              [this](const juce::FileChooser& fc)
@@ -240,6 +272,41 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
                              });
     };
     addAndMakeVisible(loadButton);
+
+    // ---- microtuning
+    tuningButton.setButtonText(processorRef.getTuningName());
+    tuningButton.setTooltip("Microtuning: load a Scala .scl file");
+    tuningButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.setLookAndFeel(&lnf);
+        menu.addItem(1, "Load Scala tuning (.scl)...");
+        menu.addItem(2, "Reset to 12-TET");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(tuningButton),
+            [this](int result)
+            {
+                if (result == 1)
+                {
+                    chooser = std::make_unique<juce::FileChooser>(
+                        "Load Scala tuning",
+                        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.scl");
+                    chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                             | juce::FileBrowserComponent::canSelectFiles,
+                                         [this](const juce::FileChooser& fc)
+                                         {
+                                             auto file = fc.getResult();
+                                             if (file.existsAsFile() && processorRef.loadTuning(file))
+                                                 tuningButton.setButtonText(processorRef.getTuningName());
+                                         });
+                }
+                else if (result == 2)
+                {
+                    processorRef.resetTuning();
+                    tuningButton.setButtonText(processorRef.getTuningName());
+                }
+            });
+    };
+    addAndMakeVisible(tuningButton);
 
     // ---- keyboard
     keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour(0xff2a2a30));
@@ -267,6 +334,44 @@ GaldrAudioProcessorEditor::~GaldrAudioProcessorEditor()
     setLookAndFeel(nullptr);
 }
 
+juce::File GaldrAudioProcessorEditor::presetDirectory()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                   .getChildFile("Galdr Presets");
+    dir.createDirectory();
+    return dir;
+}
+
+void GaldrAudioProcessorEditor::refreshPresetList()
+{
+    presetBox.clear(juce::dontSendNotification);
+    factoryCount = (int) presets::all().size();
+    int itemId = 1;
+    for (const auto& preset : presets::all())
+        presetBox.addItem(preset.name, itemId++);
+
+    userPresetFiles = presetDirectory().findChildFiles(juce::File::findFiles, false, "*.galdr");
+    if (! userPresetFiles.isEmpty())
+    {
+        presetBox.addSeparator();
+        for (const auto& file : userPresetFiles)
+            presetBox.addItem(file.getFileNameWithoutExtension(), itemId++);
+    }
+}
+
+void GaldrAudioProcessorEditor::applyPresetIndex(int index)
+{
+    if (index < factoryCount)
+    {
+        presets::apply(processorRef.apvts, index);
+        return;
+    }
+    const int userIndex = index - factoryCount;
+    if (userIndex >= 0 && userIndex < userPresetFiles.size())
+        if (auto xml = juce::XmlDocument::parse(userPresetFiles[userIndex]))
+            processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
+}
+
 GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addSection(const juce::String& title,
                                                                           juce::Rectangle<int> baseBounds)
 {
@@ -274,6 +379,15 @@ GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addSection(const 
     s.title = title;
     s.baseBounds = baseBounds;
     s.bounds = baseBounds;
+    return s;
+}
+
+GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addCustomSection(
+    const juce::String& title, juce::Rectangle<int> baseBounds, juce::Component& content)
+{
+    auto& s = addSection(title, baseBounds);
+    s.custom = &content;
+    addAndMakeVisible(content);
     return s;
 }
 
@@ -327,6 +441,12 @@ void GaldrAudioProcessorEditor::layoutSection(Section& s, float scale)
 {
     auto sc = [scale](int v) { return juce::roundToInt((float) v * scale); };
 
+    if (s.custom != nullptr)
+    {
+        s.custom->setBounds(s.bounds.withTrimmedTop(sc(20)).reduced(sc(6), sc(4)));
+        return;
+    }
+
     int y = s.bounds.getY() + sc(20);
     for (auto& row : s.rows)
     {
@@ -369,12 +489,15 @@ void GaldrAudioProcessorEditor::resized()
         layoutSection(s, scale);
     }
 
-    loadButton.setBounds(sc(baseW - 398), sc(20), sc(88), sc(26));
-    saveButton.setBounds(sc(baseW - 306), sc(20), sc(88), sc(26));
-    presetBox.setBounds(sc(baseW - 212), sc(20), sc(200), sc(26));
+    tuningButton.setBounds(sc(baseW - 560), sc(20), sc(104), sc(26));
+    loadButton.setBounds(sc(baseW - 448), sc(20), sc(66), sc(26));
+    saveButton.setBounds(sc(baseW - 378), sc(20), sc(66), sc(26));
+    presetPrev.setBounds(sc(baseW - 306), sc(20), sc(26), sc(26));
+    presetBox.setBounds(sc(baseW - 276), sc(20), sc(240), sc(26));
+    presetNext.setBounds(sc(baseW - 32), sc(20), sc(20), sc(26));
 
     keyboard.setKeyWidth(16.0f * scale);
-    keyboard.setBounds(sc(12), sc(626), getWidth() - sc(24), sc(70));
+    keyboard.setBounds(sc(12), sc(748), getWidth() - sc(24), sc(70));
 
     repaint();
 }

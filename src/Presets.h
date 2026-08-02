@@ -70,6 +70,31 @@ inline const std::vector<Preset>& all()
             { pid::lfo2Rate, 0.08f }, { pid::lfo2Depth, 0.35f },
             { pid::gain, 0.75f } } },
 
+        { "Winter Sigil", {
+            { pid::osc1Wave, 5 }, { pid::osc1Morph, 0.65f }, { pid::osc1Uni, 5 },
+            { pid::osc1Det, 15 }, { pid::osc1Spread, 1 },
+            { pid::osc2Wave, 5 }, { pid::osc2Morph, 0.2f }, { pid::osc2Semi, 7 },
+            { pid::osc2Lvl, 0.45f },
+            { pid::cutoff, 5000 },
+            { pid::attack, 1.0f }, { pid::sustain, 0.8f }, { pid::release, 2.5f },
+            { pid::chorusMix, 0.3f },
+            { pid::revMix, 0.45f }, { pid::revSize, 0.8f }, { pid::revPre, 0.06f },
+            { pid::bzLvl, 0.25f }, { pid::bzDensity, 25 }, { pid::bzSize, 0.12f },
+            { pid::bzPitch, 1200 }, { pid::bzSpread, 0.7f },
+            { pid::gain, 0.75f } } },
+
+        { "Frozen Choir", {
+            { pid::osc1Wave, 5 }, { pid::osc1Morph, 0.3f }, { pid::osc1Uni, 3 },
+            { pid::osc1Det, 10 }, { pid::osc1Spread, 0.8f },
+            { pid::osc2Wave, 5 }, { pid::osc2Morph, 0.8f }, { pid::osc2Semi, 7 },
+            { pid::osc2Lvl, 0.5f },
+            { pid::filterType, 4 }, { pid::vowel, 0.4f }, { pid::cutoff, 1000 },
+            { pid::resonance, 0.4f },
+            { pid::attack, 0.8f }, { pid::sustain, 1 }, { pid::release, 2 },
+            { pid::lfo2Rate, 0.1f }, { pid::lfo2Depth, 0.15f },
+            { pid::revMix, 0.5f }, { pid::revSize, 0.85f },
+            { pid::gain, 0.7f } } },
+
         { "Shrieking Gale", {
             { pid::noiseLvl, 0.9f },
             { pid::osc1Lvl, 0.15f },

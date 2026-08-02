@@ -1,23 +1,32 @@
 # Galdr
 
+[![Build](https://github.com/andreademurtas/galdr/actions/workflows/build.yml/badge.svg)](https://github.com/andreademurtas/galdr/actions/workflows/build.yml)
+
 *Galdr* (Old Norse for a spell sung rather than spoken) is a free and open-source
-synthesizer plugin (VST3, CLAP + standalone) with a black-metal soul, built with [JUCE](https://juce.com).
+synthesizer plugin (VST3, CLAP, AU + standalone) with a black-metal soul, built with [JUCE](https://juce.com).
 
 ![Galdr GUI](docs/screenshot.png)
 
 ## Features
 
-- 12-voice polyphonic engine: two band-limited (PolyBLEP) oscillators with up to
-  7-voice unison, detune and stereo spread, plus sub oscillator and white/pink noise
+- 12-voice engine with poly, mono and legato modes: two band-limited (PolyBLEP)
+  oscillators, up to 7-voice unison with detune and stereo spread, sub oscillator
+  and white/pink noise
+- Morphing wavetable mode: 32 mip-mapped frames sweeping from sine through saw
+  to an inharmonic "grim" spectrum
 - Multimode filter (LP 12/24 dB, HP, BP and vowel formant) with drive, dedicated
   envelope and keytracking
-- Two LFOs (vibrato and filter sweep), glide, separate amp and filter envelopes
-- Genre FX chain: four-flavour distortion, bitcrusher, ring modulator, chorus,
-  tremolo picking, delay and cavern reverb
+- Two LFOs, glide, separate amp and filter envelopes
+- MPE-friendly per-note pitch bend and pressure; Scala (.scl) microtuning
+- Genre FX chain with the nonlinear stages oversampled 2x: four-flavour
+  distortion, bitcrusher, ring modulator, chorus, tremolo picking, delay and a
+  dark FDN cavern reverb with predelay
+- "Blizzard": a granular snowstorm texture layer
 - Tempo sync for LFOs, tremolo and delay (musical divisions of the host tempo)
-- Factory presets, user preset save/load and on-screen MIDI keyboard
+- Preset browser with factory and user presets, oscilloscope and spectrum
+  analyser, on-screen MIDI keyboard
 - Dark-fantasy themed GUI, resizable, with tooltips
-- VST3, CLAP and standalone builds for Windows, macOS and Linux
+- VST3, CLAP, AU (macOS) and standalone builds for Windows, macOS and Linux
 
 ## Building
 
@@ -40,6 +49,7 @@ Artifacts are written to `build/Galdr_artefacts/Release/`:
 |---|---|
 | `VST3/Galdr.vst3` | Windows: `C:\Program Files\Common Files\VST3` · macOS: `~/Library/Audio/Plug-Ins/VST3` · Linux: `~/.vst3` |
 | `CLAP/Galdr.clap` | Windows: `C:\Program Files\Common Files\CLAP` · macOS: `~/Library/Audio/Plug-Ins/CLAP` · Linux: `~/.clap` |
+| `AU/Galdr.component` | macOS only: `~/Library/Audio/Plug-Ins/Components` |
 | `Standalone/` | Run directly, no installation needed |
 
 ## License

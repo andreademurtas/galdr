@@ -30,6 +30,10 @@ public:
         float subLvl = 0.0f;
         int   noiseType = 0;
         float noiseLvl = 0.0f;
+        float osc1Morph = 0.0f, osc2Morph = 0.0f; // wavetable position
+
+        const float* noteFreqs = nullptr;  // 128-entry tuning table (nullptr = 12-TET)
+        float bendRangeSemis = 2.0f;
 
         int   filterType = 0;
         float cutoff = 12000.0f, resonance = 0.2f, filterDrive = 0.0f;
@@ -59,11 +63,26 @@ public:
         return dynamic_cast<SynthSound*>(s) != nullptr;
     }
 
+    float noteFrequency(int midiNote) const
+    {
+        if (settings.noteFreqs != nullptr)
+            return settings.noteFreqs[juce::jlimit(0, 127, midiNote)];
+        return (float) juce::MidiMessage::getMidiNoteInHertz(midiNote);
+    }
+
+    // Legato pitch change: retune without retriggering the envelopes.
+    void slideTo(int midiNote)
+    {
+        note = midiNote;
+        targetFreq = noteFrequency(midiNote);
+    }
+
     void startNote(int midiNote, float velocity, juce::SynthesiserSound*, int) override
     {
         note = midiNote;
         level = 0.1f + velocity * 0.15f;
-        targetFreq = (float) juce::MidiMessage::getMidiNoteInHertz(midiNote);
+        pressure = 0.0f;
+        targetFreq = noteFrequency(midiNote);
         if (currentFreq <= 0.0f || settings.glideSeconds <= 0.0001f)
             currentFreq = targetFreq;
 
@@ -100,7 +119,15 @@ public:
         }
     }
 
-    void pitchWheelMoved(int) override {}
+    // MPE-friendly: per-channel bend and pressure reach the voices playing
+    // that channel, so MPE controllers get per-note expression.
+    void pitchWheelMoved(int value) override
+    {
+        bendFactor = std::exp2((float) (value - 8192) / 8192.0f * settings.bendRangeSemis / 12.0f);
+    }
+
+    void channelPressureChanged(int value) override { pressure = (float) value / 127.0f; }
+    void aftertouchChanged(int value) override      { pressure = (float) value / 127.0f; }
     void controllerMoved(int, int) override {}
 
     void renderNextBlock(juce::AudioBuffer<float>& output, int startSample, int numSamples) override
@@ -121,10 +148,11 @@ public:
         auto* L = voiceBuffer.getWritePointer(0);
         auto* R = voiceBuffer.getWritePointer(1);
 
-        const float o1Mult  = std::exp2((float) settings.osc1Oct) * settings.vibratoFactor;
+        const float o1Mult  = std::exp2((float) settings.osc1Oct) * settings.vibratoFactor * bendFactor;
         const float o2Mult  = std::exp2((float) settings.osc2Oct + (float) settings.osc2Semi / 12.0f)
-                              * settings.vibratoFactor;
-        const float subMult = std::exp2((float) (-1 - settings.subOct));
+                              * settings.vibratoFactor * bendFactor;
+        const float subMult = std::exp2((float) (-1 - settings.subOct)) * bendFactor;
+        const auto* wavetable = &galdr::Wavetable::global();
 
         int n = 0;
         bool finished = false;
@@ -145,7 +173,7 @@ public:
             {
                 osc1.next(settings.osc1Wave, settings.osc1Uni, settings.osc1Det,
                           settings.osc1Spread, settings.osc1PW,
-                          currentFreq * o1Mult, sr, sl, srr);
+                          currentFreq * o1Mult, sr, wavetable, settings.osc1Morph, sl, srr);
                 l += sl * settings.osc1Lvl;
                 r += srr * settings.osc1Lvl;
             }
@@ -154,7 +182,7 @@ public:
             {
                 osc2.next(settings.osc2Wave, settings.osc2Uni, settings.osc2Det,
                           settings.osc2Spread, settings.osc2PW,
-                          currentFreq * o2Mult, sr, sl, srr);
+                          currentFreq * o2Mult, sr, wavetable, settings.osc2Morph, sl, srr);
                 l += sl * settings.osc2Lvl;
                 r += srr * settings.osc2Lvl;
             }
@@ -202,8 +230,9 @@ public:
                 }
             }
 
-            L[n] = l * level * aEnv;
-            R[n] = r * level * aEnv;
+            const float pressGain = 1.0f + pressure * 0.4f;
+            L[n] = l * level * aEnv * pressGain;
+            R[n] = r * level * aEnv * pressGain;
 
             if (! ampAdsr.isActive())
             {
@@ -247,6 +276,7 @@ private:
     {
         const float modOctaves = fEnv * settings.fEnvAmt * 4.0f
                                  + settings.lfoCutoffOctaves
+                                 + pressure * 1.2f
                                  + (float) (note - 60) / 12.0f * settings.keytrack;
         const float maxFreq = juce::jmin(20000.0f, sr * 0.49f);
 
@@ -304,6 +334,80 @@ private:
     int note = 60;
     float level = 0.0f;
     float currentFreq = 0.0f, targetFreq = 440.0f;
+    float bendFactor = 1.0f, pressure = 0.0f;
     bool use24dB = true;
     bool formantMode = false;
+};
+
+// Synthesiser with poly / mono / legato modes. Mono keeps a note stack with
+// last-note priority; legato retunes the running voice instead of retriggering.
+class GaldrSynth : public juce::Synthesiser
+{
+public:
+    enum Mode { poly = 0, mono, legato };
+
+    void setMode(int newMode)
+    {
+        const juce::ScopedLock sl(lock);
+        if (mode != newMode)
+        {
+            mode = newMode;
+            heldNotes.clearQuick();
+            allNotesOff(0, true);
+        }
+    }
+
+    void noteOn(int midiChannel, int midiNoteNumber, float velocity) override
+    {
+        if (mode == poly)
+        {
+            juce::Synthesiser::noteOn(midiChannel, midiNoteNumber, velocity);
+            return;
+        }
+        const juce::ScopedLock sl(lock);
+        heldNotes.add({ midiNoteNumber, velocity });
+        trigger(midiChannel, midiNoteNumber, velocity, heldNotes.size() > 1);
+    }
+
+    void noteOff(int midiChannel, int midiNoteNumber, float velocity, bool allowTailOff) override
+    {
+        if (mode == poly)
+        {
+            juce::Synthesiser::noteOff(midiChannel, midiNoteNumber, velocity, allowTailOff);
+            return;
+        }
+        const juce::ScopedLock sl(lock);
+        for (int i = heldNotes.size(); --i >= 0;)
+            if (heldNotes.getReference(i).note == midiNoteNumber)
+                heldNotes.remove(i);
+
+        if (auto* voice = dynamic_cast<GaldrVoice*>(getVoice(0)))
+        {
+            if (heldNotes.isEmpty())
+                voice->stopNote(velocity, allowTailOff);
+            else
+                trigger(midiChannel, heldNotes.getLast().note, heldNotes.getLast().velocity, true);
+        }
+    }
+
+private:
+    struct Held
+    {
+        int note;
+        float velocity;
+    };
+
+    void trigger(int midiChannel, int note, float velocity, bool canLegato)
+    {
+        auto* voice = dynamic_cast<GaldrVoice*>(getVoice(0));
+        if (voice == nullptr || getNumSounds() == 0)
+            return;
+        if (mode == legato && canLegato && voice->isVoiceActive())
+            voice->slideTo(note);
+        else
+            startVoice(voice, getSound(0).get(), midiChannel, note, velocity);
+    }
+
+    int mode = poly;
+    juce::Array<Held> heldNotes;
 };

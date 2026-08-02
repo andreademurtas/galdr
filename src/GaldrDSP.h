@@ -5,11 +5,12 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
+#include "Wavetable.h"
 
 namespace galdr
 {
 
-enum class Wave { saw, square, pulse, triangle, sine };
+enum class Wave { saw, square, pulse, triangle, sine, wavetable };
 
 // Polynomial band-limited step: removes the aliasing of hard waveform edges.
 inline float polyBlep(float t, float dt)
@@ -31,7 +32,7 @@ struct BlepOsc
 {
     float phase = 0.0f;
 
-    float next(Wave wave, float dt, float pw)
+    float next(Wave wave, float dt, float pw, const Wavetable* wt = nullptr, float morph = 0.0f)
     {
         const float t = phase;
         phase += dt;
@@ -40,6 +41,10 @@ struct BlepOsc
 
         switch (wave)
         {
+            case Wave::wavetable:
+                if (wt != nullptr)
+                    return wt->sample(wt->mipForDt(dt), morph, t);
+                [[fallthrough]];
             case Wave::saw:
                 return 2.0f * t - 1.0f - polyBlep(t, dt);
 
@@ -80,7 +85,8 @@ struct UnisonOsc
     }
 
     void next(Wave wave, int unison, float detuneCents, float spread, float pw,
-              float freq, float sampleRate, float& outL, float& outR)
+              float freq, float sampleRate, const Wavetable* wt, float morph,
+              float& outL, float& outR)
     {
         unison = juce::jlimit(1, maxUnison, unison);
         const float norm = 1.0f / std::sqrt((float) unison);
@@ -92,7 +98,7 @@ struct UnisonOsc
                                           : 2.0f * (float) k / (float) (unison - 1) - 1.0f;
             const float f  = freq * std::exp2(pos * detuneCents / 1200.0f);
             const float dt = juce::jmin(0.45f, f / sampleRate);
-            const float s  = voices[k].next(wave, dt, pw) * norm;
+            const float s  = voices[k].next(wave, dt, pw, wt, morph) * norm;
 
             const float angle = (pos * spread + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
             l += s * std::cos(angle);
