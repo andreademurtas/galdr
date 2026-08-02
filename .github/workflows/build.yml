@@ -60,8 +60,17 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          cd build/Galdr_artefacts/Release
-          dirs=""
+          stage=build/Galdr_artefacts/Release
+          cp LICENSE "$stage/LICENSE.txt"
+          cp NOTICE.txt "$stage/NOTICE.txt"
+          mkdir "$stage/licenses"
+          cp licenses/AGPL-3.0.txt "$stage/licenses/JUCE-AGPL-3.0.txt"
+          cp assets/fonts/OFL-UnifrakturMaguntia.txt assets/fonts/OFL-IMFellEnglish.txt "$stage/licenses/"
+          cp JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK/LICENSE.txt "$stage/licenses/VST3-SDK-MIT.txt"
+          cp modules/clap-juce-extensions/clap-libs/clap/LICENSE "$stage/licenses/CLAP-MIT.txt"
+          cp modules/clap-juce-extensions/LICENSE.md "$stage/licenses/clap-juce-extensions-MIT.txt"
+          cd "$stage"
+          dirs="LICENSE.txt NOTICE.txt licenses"
           for d in VST3 CLAP AU Standalone; do
             [ -d "$d" ] && dirs="$dirs $d"
           done

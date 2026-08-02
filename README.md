@@ -58,9 +58,10 @@ This project is licensed under the **GNU General Public License v3.0 or later**
 (see [LICENSE](LICENSE)).
 
 It uses the [JUCE framework](https://github.com/juce-framework/JUCE), licensed under
-the AGPLv3, the VST3 SDK interfaces distributed with JUCE under the GPLv3, and
+the AGPLv3, the VST3 SDK interfaces distributed with JUCE under the MIT license, and
 [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions) (MIT) for
-the CLAP export.
+the CLAP export. Binary releases ship the relevant license texts in a `licenses/`
+folder plus a `NOTICE.txt` with full attributions.
 
 The GUI embeds the fonts [UnifrakturMaguntia](https://fonts.google.com/specimen/UnifrakturMaguntia)
 and [IM Fell English](https://fonts.google.com/specimen/IM+Fell+English), both licensed under the

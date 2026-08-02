@@ -1,0 +1,39 @@
+Galdr — third-party notices for binary distributions
+=====================================================
+
+Galdr is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.txt in this archive.
+
+Copyright (C) 2026 Andrea De Murtas
+
+Complete corresponding source code:
+    https://github.com/andreademurtas/galdr
+(each release on that page includes a source archive for the exact version
+of these binaries).
+
+These binaries also contain the following third-party software:
+
+- JUCE framework — https://github.com/juce-framework/JUCE
+  Licensed under the GNU Affero General Public License v3.
+  See licenses/JUCE-AGPL-3.0.txt.
+  JUCE itself bundles further dependencies (zlib, FLAC, Ogg Vorbis, libpng,
+  HarfBuzz and others) under permissive licenses; see the JUCE source tree
+  for their individual notices.
+
+- VST3 SDK interfaces (distributed with JUCE) — Steinberg Media Technologies GmbH
+  Licensed under the MIT License. See licenses/VST3-SDK-MIT.txt.
+  VST is a registered trademark of Steinberg Media Technologies GmbH.
+
+- CLAP (CLever Audio Plug-in API) — https://github.com/free-audio/clap
+  Licensed under the MIT License. See licenses/CLAP-MIT.txt.
+
+- clap-juce-extensions — https://github.com/free-audio/clap-juce-extensions
+  Licensed under the MIT License. See licenses/clap-juce-extensions-MIT.txt.
+
+Embedded fonts:
+
+- UnifrakturMaguntia and IM Fell English, both licensed under the SIL Open
+  Font License, Version 1.1. See licenses/OFL-UnifrakturMaguntia.txt and
+  licenses/OFL-IMFellEnglish.txt.
