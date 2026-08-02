@@ -7,7 +7,7 @@
 namespace
 {
 constexpr int baseW = 1220;
-constexpr int baseH = 986;
+constexpr int baseH = 1010;
 
 const char* tipFor(const juce::String& id)
 {
@@ -38,6 +38,7 @@ const char* tipFor(const juce::String& id)
         { pid::tremSync,   "Locks the rate to the host tempo" },
         { pid::delaySync,  "Locks the delay time to the host tempo" },
         { pid::voiceMode,  "Poly, mono retrigger, or legato (slides without retriggering)" },
+        { pid::bzGate,     "Gated: blows only while notes sound. Free: continuous drone" },
         { pid::bzDensity,  "Grains per second of the snowstorm layer" },
         { pid::bzPitch,    "Centre frequency of the grains" },
         { pid::bzSpread,   "Random pitch and stereo scatter of the grains" },
@@ -247,7 +248,8 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
 
     // ---- row 5: blizzard and visualizers
     {
-        auto& s = addSection("Blizzard", { 12, 780, 340, 118 });
+        auto& s = addSection("Blizzard", { 12, 780, 340, 148 });
+        addCombo(comboRow(s), pid::bzGate);
         auto& r = knobRow(s);
         addKnob(r, pid::bzDensity, "Density");
         addKnob(r, pid::bzSize, "Size");
@@ -255,8 +257,8 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::bzSpread, "Spread");
         addKnob(r, pid::bzLvl, "Level");
     }
-    addCustomSection("Oscilloscope", { 360, 780, 420, 118 }, scope);
-    addCustomSection("Spectrum", { 788, 780, 420, 118 }, spectrum);
+    addCustomSection("Oscilloscope", { 360, 780, 420, 148 }, scope);
+    addCustomSection("Spectrum", { 788, 780, 420, 148 }, spectrum);
 
     // ---- preset browser
     refreshPresetList();
@@ -554,7 +556,7 @@ void GaldrAudioProcessorEditor::resized()
     presetNext.setBounds(sc(baseW - 32), sc(20), sc(20), sc(26));
 
     keyboard.setKeyWidth(16.0f * scale);
-    keyboard.setBounds(sc(12), sc(904), getWidth() - sc(24), sc(70));
+    keyboard.setBounds(sc(12), sc(934), getWidth() - sc(24), sc(70));
 
     repaint();
 }

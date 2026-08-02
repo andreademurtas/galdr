@@ -257,6 +257,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
         NormalisableRange<float>(100.0f, 8000.0f, 0.0f, 0.3f), 900.0f, hertz));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzSpread, 1 }, "Spread", zeroOne, 0.5f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::bzLvl, 1 }, "Level", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::bzGate, 1 }, "Blizzard Gate",
+        StringArray { "Gated", "Free" }, 0));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::rmFreq, 1 }, "RM Freq",
         NormalisableRange<float>(20.0f, 5000.0f, 0.0f, 0.3f), 250.0f, hertz));
@@ -804,9 +806,23 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     processArp(midiMessages, numSamples);
     synth.renderNextBlock(buffer, midiMessages, 0, numSamples);
 
-    blizzard.process(buffer, raw(pid::bzDensity), raw(pid::bzSize),
-                     raw(pid::bzPitch), raw(pid::bzSpread),
-                     juce::jlimit(0.0f, 1.0f, raw(pid::bzLvl) + bzLvlMod));
+    // Gated mode: the snowstorm only blows while notes are sounding, with a
+    // soft ramp so it breathes with the tails instead of cutting off.
+    {
+        bool anyVoiceActive = false;
+        for (int i = 0; i < synth.getNumVoices() && ! anyVoiceActive; ++i)
+            anyVoiceActive = synth.getVoice(i)->isVoiceActive();
+
+        const bool freeRunning = (int) raw(pid::bzGate) == 1;
+        const float target = (freeRunning || anyVoiceActive) ? 1.0f : 0.0f;
+        const float tau = target > bzGateEnv ? 0.04f : 0.25f;
+        bzGateEnv += (1.0f - std::exp(-(float) numSamples / ((float) sr * tau)))
+                     * (target - bzGateEnv);
+
+        blizzard.process(buffer, raw(pid::bzDensity), raw(pid::bzSize),
+                         raw(pid::bzPitch), raw(pid::bzSpread),
+                         juce::jlimit(0.0f, 1.0f, raw(pid::bzLvl) + bzLvlMod) * bzGateEnv);
+    }
 
     // The nonlinear stages run oversampled at 2x to keep aliasing down.
     {

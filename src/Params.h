@@ -81,6 +81,7 @@ namespace pid
     inline constexpr auto bzPitch   = "bzPitch";
     inline constexpr auto bzSpread  = "bzSpread";
     inline constexpr auto bzLvl     = "bzLvl";
+    inline constexpr auto bzGate    = "bzGate"; // v0.4: gated by notes or free-running
 
     // v0.4: FM/hard sync, mod matrix, third envelope, arpeggiator, drift, shimmer
     inline constexpr auto fmAmt      = "fmAmt";

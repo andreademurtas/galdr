@@ -93,6 +93,7 @@ private:
     float lastVelocity = 0.0f, lastRandom = 0.0f, lastEnv3 = 0.0f, lastFiltEnv = 0.0f;
     float rmFreqModOct = 0.0f, tremDepthMod = 0.0f, delayMixMod = 0.0f;
     float revMixMod = 0.0f, bzLvlMod = 0.0f;
+    float bzGateEnv = 0.0f;
 
     // arpeggiator
     struct ArpState
