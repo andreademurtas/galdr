@@ -3,30 +3,25 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "SynthVoice.h"
+
+namespace
+{
+constexpr int numVoices = 12;
+}
 
 GaldrAudioProcessor::GaldrAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "PARAMETERS", createParameterLayout())
+      apvts(*this, nullptr, "PARAMETERS", createGaldrParameterLayout())
 {
-    for (int i = 0; i < 8; ++i)
-        synth.addVoice(new SynthVoice());
+    for (int i = 0; i < numVoices; ++i)
+        synth.addVoice(new GaldrVoice(settings));
 
     synth.addSound(new SynthSound());
-
-    waveformParam = apvts.getRawParameterValue("waveform");
-    attackParam   = apvts.getRawParameterValue("attack");
-    decayParam    = apvts.getRawParameterValue("decay");
-    sustainParam  = apvts.getRawParameterValue("sustain");
-    releaseParam  = apvts.getRawParameterValue("release");
-    gainParam     = apvts.getRawParameterValue("gain");
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout GaldrAudioProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
 {
     using namespace juce;
-
-    AudioProcessorValueTreeState::ParameterLayout layout;
 
     const auto seconds = AudioParameterFloatAttributes()
         .withStringFromValueFunction([](float value, int)
@@ -53,30 +48,169 @@ juce::AudioProcessorValueTreeState::ParameterLayout GaldrAudioProcessor::createP
             return value > 1.0f ? value / 100.0f : value;
         });
 
-    layout.add(std::make_unique<AudioParameterChoice>(
-        ParameterID { "waveform", 1 }, "Waveform", StringArray { "Sine", "Saw", "Square" }, 0));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        ParameterID { "attack", 1 }, "Attack",
-        NormalisableRange<float>(0.001f, 5.0f, 0.0f, 0.35f), 0.01f, seconds));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        ParameterID { "decay", 1 }, "Decay",
-        NormalisableRange<float>(0.001f, 5.0f, 0.0f, 0.35f), 0.1f, seconds));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        ParameterID { "sustain", 1 }, "Sustain",
-        NormalisableRange<float>(0.0f, 1.0f), 0.8f, percent));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        ParameterID { "release", 1 }, "Release",
-        NormalisableRange<float>(0.001f, 5.0f, 0.0f, 0.35f), 0.2f, seconds));
-    layout.add(std::make_unique<AudioParameterFloat>(
-        ParameterID { "gain", 1 }, "Gain",
-        NormalisableRange<float>(0.0f, 1.0f), 0.8f, percent));
+    const auto hertz = AudioParameterFloatAttributes()
+        .withStringFromValueFunction([](float value, int)
+        {
+            if (value >= 1000.0f) return String(value / 1000.0f, 2) + " kHz";
+            if (value >= 100.0f)  return String(roundToInt(value)) + " Hz";
+            return String(value, 2) + " Hz";
+        });
+
+    const auto cents = AudioParameterFloatAttributes()
+        .withStringFromValueFunction([](float value, int)
+        {
+            return String(roundToInt(value)) + " ct";
+        });
+
+    const StringArray waveNames { "Saw", "Square", "Pulse", "Triangle", "Sine" };
+    const StringArray lfoShapes { "Sine", "Triangle", "Saw", "Square", "S&H" };
+
+    const NormalisableRange<float> envRange(0.001f, 5.0f, 0.0f, 0.35f);
+    const NormalisableRange<float> zeroOne(0.0f, 1.0f);
+    const NormalisableRange<float> freqRange(20.0f, 20000.0f, 0.0f, 0.25f);
+
+    AudioProcessorValueTreeState::ParameterLayout layout;
+
+    auto add = [&layout](auto param) { layout.add(std::move(param)); };
+
+    // OSC 1
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::osc1Wave, 1 }, "Osc 1 Wave", waveNames, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::osc1Oct, 1 }, "Osc 1 Octave", -2, 2, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::osc1Uni, 1 }, "Osc 1 Unison", 1, 7, 1));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1Det, 1 }, "Osc 1 Detune",
+        NormalisableRange<float>(0.0f, 100.0f), 12.0f, cents));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1Spread, 1 }, "Osc 1 Spread", zeroOne, 0.7f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1PW, 1 }, "Osc 1 PW",
+        NormalisableRange<float>(0.05f, 0.95f), 0.5f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc1Lvl, 1 }, "Osc 1 Level", zeroOne, 0.8f, percent));
+
+    // OSC 2
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::osc2Wave, 1 }, "Osc 2 Wave", waveNames, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::osc2Oct, 1 }, "Osc 2 Octave", -2, 2, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::osc2Semi, 1 }, "Osc 2 Semi", -12, 12, 0));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::osc2Uni, 1 }, "Osc 2 Unison", 1, 7, 1));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2Det, 1 }, "Osc 2 Detune",
+        NormalisableRange<float>(0.0f, 100.0f), 12.0f, cents));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2Spread, 1 }, "Osc 2 Spread", zeroOne, 0.7f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2PW, 1 }, "Osc 2 PW",
+        NormalisableRange<float>(0.05f, 0.95f), 0.5f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::osc2Lvl, 1 }, "Osc 2 Level", zeroOne, 0.0f, percent));
+
+    // SUB + NOISE
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::subWave, 1 }, "Sub Wave",
+        StringArray { "Sine", "Square" }, 0));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::subOct, 1 }, "Sub Octave",
+        StringArray { "-1 oct", "-2 oct" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::subLvl, 1 }, "Sub Level", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::noiseType, 1 }, "Noise Type",
+        StringArray { "White", "Pink" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::noiseLvl, 1 }, "Noise Level", zeroOne, 0.0f, percent));
+
+    // FILTER
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::filterType, 1 }, "Filter Type",
+        StringArray { "LP 24", "LP 12", "HP", "BP" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::cutoff, 1 }, "Cutoff", freqRange, 12000.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::resonance, 1 }, "Resonance", zeroOne, 0.2f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::filterDrive, 1 }, "Filter Drive", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fEnvAmt, 1 }, "Env Amount",
+        NormalisableRange<float>(-1.0f, 1.0f), 0.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::keytrack, 1 }, "Keytrack", zeroOne, 0.0f, percent));
+
+    // ENVELOPES
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::attack, 1 }, "Attack", envRange, 0.005f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::decay, 1 }, "Decay", envRange, 0.1f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::sustain, 1 }, "Sustain", zeroOne, 0.8f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::release, 1 }, "Release", envRange, 0.25f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fAttack, 1 }, "F.Attack", envRange, 0.005f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fDecay, 1 }, "F.Decay", envRange, 0.15f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fSustain, 1 }, "F.Sustain", zeroOne, 0.5f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::fRelease, 1 }, "F.Release", envRange, 0.3f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::glide, 1 }, "Glide",
+        NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.5f), 0.0f, seconds));
+
+    // LFOs
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo1Shape, 1 }, "LFO 1 Shape", lfoShapes, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo1Rate, 1 }, "LFO 1 Rate",
+        NormalisableRange<float>(0.05f, 20.0f, 0.0f, 0.5f), 5.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo1Depth, 1 }, "Vibrato", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo2Shape, 1 }, "LFO 2 Shape", lfoShapes, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo2Rate, 1 }, "LFO 2 Rate",
+        NormalisableRange<float>(0.02f, 20.0f, 0.0f, 0.5f), 0.5f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo2Depth, 1 }, "To Cutoff", zeroOne, 0.0f, percent));
+
+    // FX
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::distType, 1 }, "Dist Type",
+        StringArray { "Soft", "Hard", "Fold", "Grim" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::distDrive, 1 }, "Drive", zeroOne, 0.3f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::distTone, 1 }, "Tone",
+        NormalisableRange<float>(500.0f, 20000.0f, 0.0f, 0.3f), 8000.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::distMix, 1 }, "Dist Mix", zeroOne, 1.0f, percent));
+
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::crushBits, 1 }, "Bits", 2, 16, 16));
+    add(std::make_unique<AudioParameterInt>(ParameterID { pid::crushRate, 1 }, "Downsample", 1, 50, 1));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::crushMix, 1 }, "Crush Mix", zeroOne, 1.0f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::chorusRate, 1 }, "Chorus Rate",
+        NormalisableRange<float>(0.1f, 10.0f, 0.0f, 0.5f), 1.2f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::chorusDepth, 1 }, "Chorus Depth", zeroOne, 0.25f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::chorusMix, 1 }, "Chorus Mix", zeroOne, 0.0f, percent));
+
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::tremShape, 1 }, "Trem Shape",
+        StringArray { "Square", "Sine" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::tremRate, 1 }, "Trem Rate",
+        NormalisableRange<float>(0.5f, 30.0f, 0.0f, 0.5f), 13.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::tremDepth, 1 }, "Trem Depth", zeroOne, 0.0f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::delayTime, 1 }, "Delay Time",
+        NormalisableRange<float>(0.02f, 1.5f, 0.0f, 0.5f), 0.45f, seconds));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::delayFb, 1 }, "Feedback",
+        NormalisableRange<float>(0.0f, 0.95f), 0.4f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::delayMix, 1 }, "Delay Mix", zeroOne, 0.0f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revSize, 1 }, "Size", zeroOne, 0.8f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revDamp, 1 }, "Damp", zeroOne, 0.3f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revWidth, 1 }, "Width", zeroOne, 1.0f, percent));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revMix, 1 }, "Reverb Mix", zeroOne, 0.25f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::gain, 1 }, "Gain", zeroOne, 0.8f, percent));
 
     return layout;
 }
 
-void GaldrAudioProcessor::prepareToPlay(double sampleRate, int)
+void GaldrAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    sr = sampleRate;
     synth.setCurrentPlaybackSampleRate(sampleRate);
+
+    for (int i = 0; i < synth.getNumVoices(); ++i)
+        if (auto* voice = dynamic_cast<GaldrVoice*>(synth.getVoice(i)))
+            voice->prepare(sampleRate, samplesPerBlock);
+
+    const auto channels = (juce::uint32) juce::jmax(1, getTotalNumOutputChannels());
+    const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) samplesPerBlock, channels };
+
+    chorus.prepare(spec);
+    chorus.reset();
+    chorus.setCentreDelay(7.0f);
+    chorus.setFeedback(0.0f);
+
+    delayLine.prepare(spec);
+    delayLine.setMaximumDelayInSamples((int) std::ceil(2.0 * sampleRate));
+    delayLine.reset();
+
+    reverb.setSampleRate(sampleRate);
+    reverb.reset();
+
+    delaySamplesSm.reset(sampleRate, 0.1);
+    delaySamplesSm.setCurrentAndTargetValue((float) (0.45 * sampleRate));
+    gainSm.reset(sampleRate, 0.05);
+    gainSm.setCurrentAndTargetValue(raw(pid::gain));
+
+    tremCoeff = 1.0f - std::exp(-1.0f / (0.0015f * (float) sampleRate));
+    tremSmooth = 1.0f;
+    toneState[0] = toneState[1] = 0.0f;
+    crushHeld[0] = crushHeld[1] = 0.0f;
+    crushCount[0] = crushCount[1] = 0;
 }
 
 bool GaldrAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -85,23 +219,235 @@ bool GaldrAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) con
     return mainOut == juce::AudioChannelSet::stereo() || mainOut == juce::AudioChannelSet::mono();
 }
 
+float GaldrAudioProcessor::lfoShapeValue(int shape, float phase, float& held, bool wrapped)
+{
+    switch (shape)
+    {
+        case 0:  return std::sin(phase * juce::MathConstants<float>::twoPi);
+        case 1:  return 4.0f * std::abs(phase - 0.5f) - 1.0f;
+        case 2:  return 2.0f * phase - 1.0f;
+        case 3:  return phase < 0.5f ? 1.0f : -1.0f;
+        default:
+            if (wrapped)
+                held = lfoRng.nextFloat() * 2.0f - 1.0f;
+            return held;
+    }
+}
+
+void GaldrAudioProcessor::updateSettings(int numSamples)
+{
+    settings.osc1Wave   = (galdr::Wave) (int) raw(pid::osc1Wave);
+    settings.osc1Oct    = (int) raw(pid::osc1Oct);
+    settings.osc1Uni    = (int) raw(pid::osc1Uni);
+    settings.osc1Det    = raw(pid::osc1Det);
+    settings.osc1Spread = raw(pid::osc1Spread);
+    settings.osc1PW     = raw(pid::osc1PW);
+    settings.osc1Lvl    = raw(pid::osc1Lvl);
+
+    settings.osc2Wave   = (galdr::Wave) (int) raw(pid::osc2Wave);
+    settings.osc2Oct    = (int) raw(pid::osc2Oct);
+    settings.osc2Semi   = (int) raw(pid::osc2Semi);
+    settings.osc2Uni    = (int) raw(pid::osc2Uni);
+    settings.osc2Det    = raw(pid::osc2Det);
+    settings.osc2Spread = raw(pid::osc2Spread);
+    settings.osc2PW     = raw(pid::osc2PW);
+    settings.osc2Lvl    = raw(pid::osc2Lvl);
+
+    settings.subWave   = (int) raw(pid::subWave);
+    settings.subOct    = (int) raw(pid::subOct);
+    settings.subLvl    = raw(pid::subLvl);
+    settings.noiseType = (int) raw(pid::noiseType);
+    settings.noiseLvl  = raw(pid::noiseLvl);
+
+    settings.filterType  = (int) raw(pid::filterType);
+    settings.cutoff      = raw(pid::cutoff);
+    settings.resonance   = raw(pid::resonance);
+    settings.filterDrive = raw(pid::filterDrive);
+    settings.fEnvAmt     = raw(pid::fEnvAmt);
+    settings.keytrack    = raw(pid::keytrack);
+
+    settings.ampEnv  = { raw(pid::attack), raw(pid::decay), raw(pid::sustain), raw(pid::release) };
+    settings.filtEnv = { raw(pid::fAttack), raw(pid::fDecay), raw(pid::fSustain), raw(pid::fRelease) };
+    settings.glideSeconds = raw(pid::glide);
+
+    const float blockDt = (float) numSamples / (float) sr;
+    auto advance = [blockDt](float& phase, float rate)
+    {
+        phase += rate * blockDt;
+        const bool wrapped = phase >= 1.0f;
+        while (phase >= 1.0f)
+            phase -= 1.0f;
+        return wrapped;
+    };
+
+    const bool w1 = advance(lfo1Phase, raw(pid::lfo1Rate));
+    const float v1 = lfoShapeValue((int) raw(pid::lfo1Shape), lfo1Phase, lfo1Held, w1);
+    settings.vibratoFactor = std::exp2(v1 * raw(pid::lfo1Depth) * 100.0f / 1200.0f);
+
+    const bool w2 = advance(lfo2Phase, raw(pid::lfo2Rate));
+    const float v2 = lfoShapeValue((int) raw(pid::lfo2Shape), lfo2Phase, lfo2Held, w2);
+    settings.lfoCutoffOctaves = v2 * raw(pid::lfo2Depth) * 3.0f;
+}
+
+void GaldrAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
+{
+    const int type = (int) raw(pid::distType);
+    const float drive = raw(pid::distDrive);
+    const float mix = raw(pid::distMix);
+    if (mix < 0.001f)
+        return;
+
+    const float toneCoeff = 1.0f - std::exp(-juce::MathConstants<float>::twoPi
+                                            * raw(pid::distTone) / (float) sr);
+
+    for (int ch = 0; ch < buffer.getNumChannels() && ch < 2; ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        float z = toneState[ch];
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            const float x = data[i];
+            float wet = galdr::distort(type, x, drive) * 0.8f;
+            z += toneCoeff * (wet - z);
+            data[i] = x * (1.0f - mix) + z * mix;
+        }
+        toneState[ch] = z;
+    }
+}
+
+void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer)
+{
+    const int bits = (int) raw(pid::crushBits);
+    const int rate = (int) raw(pid::crushRate);
+    const float mix = raw(pid::crushMix);
+    if ((bits >= 16 && rate <= 1) || mix < 0.001f)
+        return;
+
+    const float quant = std::exp2((float) (bits - 1));
+
+    for (int ch = 0; ch < buffer.getNumChannels() && ch < 2; ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        float held = crushHeld[ch];
+        int count = crushCount[ch];
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            if (count++ % rate == 0)
+                held = std::round(data[i] * quant) / quant;
+            data[i] = data[i] * (1.0f - mix) + held * mix;
+        }
+        crushHeld[ch] = held;
+        crushCount[ch] = count % juce::jmax(1, rate);
+    }
+}
+
+void GaldrAudioProcessor::applyTremolo(juce::AudioBuffer<float>& buffer)
+{
+    const float depth = raw(pid::tremDepth);
+    const float rate = raw(pid::tremRate);
+    const bool sine = (int) raw(pid::tremShape) == 1;
+    const float inc = rate / (float) sr;
+
+    if (depth < 0.001f)
+    {
+        tremPhase = std::fmod(tremPhase + inc * (float) buffer.getNumSamples(), 1.0f);
+        tremSmooth = 1.0f;
+        return;
+    }
+
+    const int channels = buffer.getNumChannels();
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+    {
+        tremPhase += inc;
+        if (tremPhase >= 1.0f)
+            tremPhase -= 1.0f;
+
+        const float target = sine
+            ? 1.0f - depth * (0.5f - 0.5f * std::cos(tremPhase * juce::MathConstants<float>::twoPi))
+            : (tremPhase < 0.5f ? 1.0f : 1.0f - depth);
+        tremSmooth += tremCoeff * (target - tremSmooth);
+
+        for (int ch = 0; ch < channels; ++ch)
+            buffer.getWritePointer(ch)[i] *= tremSmooth;
+    }
+}
+
+void GaldrAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer)
+{
+    const float mix = raw(pid::delayMix);
+    const float fb = raw(pid::delayFb);
+    delaySamplesSm.setTargetValue(raw(pid::delayTime) * (float) sr);
+
+    const int channels = juce::jmin(2, buffer.getNumChannels());
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+    {
+        const float d = delaySamplesSm.getNextValue();
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            const float in = data[i];
+            const float rd = delayLine.popSample(ch, d, true);
+            delayLine.pushSample(ch, in + rd * fb);
+            data[i] = in + rd * mix;
+        }
+    }
+}
+
+void GaldrAudioProcessor::applyReverbAndGain(juce::AudioBuffer<float>& buffer)
+{
+    const float mix = raw(pid::revMix);
+    juce::Reverb::Parameters rp;
+    rp.roomSize   = raw(pid::revSize);
+    rp.damping    = raw(pid::revDamp);
+    rp.width      = raw(pid::revWidth);
+    rp.wetLevel   = mix;
+    rp.dryLevel   = 1.0f - mix * 0.5f;
+    rp.freezeMode = 0.0f;
+    reverb.setParameters(rp);
+
+    const int n = buffer.getNumSamples();
+    if (buffer.getNumChannels() >= 2)
+        reverb.processStereo(buffer.getWritePointer(0), buffer.getWritePointer(1), n);
+    else
+        reverb.processMono(buffer.getWritePointer(0), n);
+
+    gainSm.setTargetValue(raw(pid::gain));
+    for (int i = 0; i < n; ++i)
+    {
+        const float g = gainSm.getNextValue();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto& s = buffer.getWritePointer(ch)[i];
+            s = std::tanh(s * g);
+        }
+    }
+}
+
 void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+    const int numSamples = buffer.getNumSamples();
+
+    keyboardState.processNextMidiBuffer(midiMessages, 0, numSamples, true);
     buffer.clear();
 
-    const juce::ADSR::Parameters envelope {
-        attackParam->load(), decayParam->load(), sustainParam->load(), releaseParam->load()
-    };
-    const auto waveform = static_cast<int>(waveformParam->load());
+    updateSettings(numSamples);
+    synth.renderNextBlock(buffer, midiMessages, 0, numSamples);
 
-    for (int i = 0; i < synth.getNumVoices(); ++i)
-        if (auto* voice = dynamic_cast<SynthVoice*>(synth.getVoice(i)))
-            voice->setParameters(envelope, waveform);
+    applyDistortion(buffer);
+    applyCrusher(buffer);
 
-    synth.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
+    {
+        chorus.setRate(raw(pid::chorusRate));
+        chorus.setDepth(raw(pid::chorusDepth));
+        chorus.setMix(raw(pid::chorusMix));
+        juce::dsp::AudioBlock<float> block(buffer);
+        chorus.process(juce::dsp::ProcessContextReplacing<float>(block));
+    }
 
-    buffer.applyGain(gainParam->load());
+    applyTremolo(buffer);
+    applyDelay(buffer);
+    applyReverbAndGain(buffer);
 }
 
 void GaldrAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -112,7 +458,7 @@ void GaldrAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void GaldrAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    if (auto tree = juce::ValueTree::readFromData(data, static_cast<size_t>(sizeInBytes)); tree.isValid())
+    if (auto tree = juce::ValueTree::readFromData(data, (size_t) sizeInBytes); tree.isValid())
         apvts.replaceState(tree);
 }
 

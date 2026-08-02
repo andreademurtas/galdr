@@ -3,10 +3,17 @@
 *Galdr* (Old Norse for a spell sung rather than spoken) is a free and open-source
 synthesizer plugin (VST3 + standalone) with a black-metal soul, built with [JUCE](https://juce.com).
 
+![Galdr GUI](docs/screenshot.png)
+
 ## Features
 
-- 8-voice polyphonic synth with sine / saw / square oscillator
-- ADSR envelope and output gain
+- 12-voice polyphonic engine: two band-limited (PolyBLEP) oscillators with up to
+  7-voice unison, detune and stereo spread, plus sub oscillator and white/pink noise
+- Multimode filter (LP 12/24 dB, HP, BP) with drive, dedicated envelope and keytracking
+- Two LFOs (vibrato and filter sweep), glide, separate amp and filter envelopes
+- Genre FX chain: four-flavour distortion, bitcrusher, chorus, tremolo picking,
+  delay and cavern reverb
+- Factory presets and on-screen MIDI keyboard
 - Dark-fantasy themed GUI
 - VST3 and standalone builds for Windows, macOS and Linux
 

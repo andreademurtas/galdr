@@ -55,7 +55,7 @@ public:
         return juce::Font(juce::FontOptions(bodyTypeface).withHeight(height));
     }
 
-    juce::Font getLabelFont(juce::Label&) override        { return getBodyFont(16.0f); }
+    juce::Font getLabelFont(juce::Label&) override        { return getBodyFont(15.0f); }
     juce::Font getComboBoxFont(juce::ComboBox&) override  { return getBodyFont(17.0f); }
     juce::Font getPopupMenuFont() override                { return getBodyFont(17.0f); }
 
