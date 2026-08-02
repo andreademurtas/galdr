@@ -32,16 +32,17 @@ private:
     struct Section
     {
         juce::String title;
-        juce::Rectangle<int> bounds;
+        juce::Rectangle<int> baseBounds;        // layout at reference size
+        juce::Rectangle<int> bounds;            // scaled, set in resized()
         std::vector<Row> rows;
     };
 
-    Section& addSection(const juce::String& title, juce::Rectangle<int> bounds);
+    Section& addSection(const juce::String& title, juce::Rectangle<int> baseBounds);
     Row& comboRow(Section&);
     Row& knobRow(Section&);
     void addKnob(Row&, const char* paramID, const juce::String& name);
     void addCombo(Row&, const char* paramID);
-    void layoutSection(Section&);
+    void layoutSection(Section&, float scale);
 
     void drawRidge(juce::Graphics&, float baseY, float amplitude, int seedStep,
                    juce::Colour colour) const;
@@ -51,6 +52,9 @@ private:
 
     juce::MidiKeyboardComponent keyboard;
     juce::ComboBox presetBox;
+    juce::TextButton saveButton { "Save" }, loadButton { "Load" };
+    juce::TooltipWindow tooltipWindow { this };
+    std::unique_ptr<juce::FileChooser> chooser;
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<juce::ComboBox> combos;

@@ -6,9 +6,36 @@
 
 namespace
 {
-constexpr int editorW = 1220;
-constexpr int editorH = 708;
+constexpr int baseW = 1220;
+constexpr int baseH = 708;
+
+const char* tipFor(const juce::String& id)
+{
+    static const std::map<juce::String, const char*> tips = {
+        { pid::osc1Uni,    "Stacked detuned copies of the oscillator: the wall of saws" },
+        { pid::osc1Det,    "Unison detune in cents" },
+        { pid::osc2Semi,   "+7 semitones gives a power-chord drone" },
+        { pid::filterDrive,"Saturation before the filter" },
+        { pid::vowel,      "Vowel morph A-E-I-O-U (Formant filter type only)" },
+        { pid::crushBits,  "Bit depth reduction" },
+        { pid::crushRate,  "Sample-rate divider: the necro knob" },
+        { pid::tremRate,   "13-16 Hz feels like tremolo picking" },
+        { pid::glide,      "Portamento time between notes" },
+        { pid::rmFreq,     "Ring modulator carrier frequency" },
+        { pid::rmMix,      "Ring modulator amount" },
+        { pid::fEnvAmt,    "How much the filter envelope moves the cutoff (bipolar)" },
+        { pid::keytrack,   "Cutoff follows the played note" },
+        { pid::lfo1Depth,  "Vibrato depth (up to one semitone)" },
+        { pid::lfo2Depth,  "Cutoff sweep depth" },
+        { pid::lfo1Sync,   "Locks the rate to the host tempo" },
+        { pid::lfo2Sync,   "Locks the rate to the host tempo" },
+        { pid::tremSync,   "Locks the rate to the host tempo" },
+        { pid::delaySync,  "Locks the delay time to the host tempo" },
+    };
+    auto it = tips.find(id);
+    return it != tips.end() ? it->second : nullptr;
 }
+} // namespace
 
 GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     : AudioProcessorEditor(&p),
@@ -62,11 +89,13 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::filterDrive, "Drive");
         addKnob(r, pid::fEnvAmt, "Env Amt");
         addKnob(r, pid::keytrack, "Track");
+        auto& r2 = knobRow(s);
+        addKnob(r2, pid::vowel, "Vowel");
     }
 
     // ---- row 2: envelopes, lfos, performance
     {
-        auto& s = addSection("Amp Envelope", { 12, 324, 280, 144 });
+        auto& s = addSection("Amp Envelope", { 12, 324, 260, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::attack, "Attack");
         addKnob(r, pid::decay, "Decay");
@@ -74,7 +103,7 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::release, "Release");
     }
     {
-        auto& s = addSection("Filter Envelope", { 300, 324, 280, 144 });
+        auto& s = addSection("Filter Envelope", { 280, 324, 260, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::fAttack, "Attack");
         addKnob(r, pid::fDecay, "Decay");
@@ -82,23 +111,29 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
         addKnob(r, pid::fRelease, "Release");
     }
     {
-        auto& s = addSection("LFO I / Vibrato", { 588, 324, 200, 144 });
-        addCombo(comboRow(s), pid::lfo1Shape);
+        auto& s = addSection("LFO I / Vibrato", { 548, 324, 208, 144 });
+        auto& c = comboRow(s);
+        addCombo(c, pid::lfo1Shape);
+        addCombo(c, pid::lfo1Sync);
         auto& r = knobRow(s);
         addKnob(r, pid::lfo1Rate, "Rate");
         addKnob(r, pid::lfo1Depth, "Depth");
     }
     {
-        auto& s = addSection("LFO II / Filter", { 796, 324, 200, 144 });
-        addCombo(comboRow(s), pid::lfo2Shape);
+        auto& s = addSection("LFO II / Filter", { 764, 324, 208, 144 });
+        auto& c = comboRow(s);
+        addCombo(c, pid::lfo2Shape);
+        addCombo(c, pid::lfo2Sync);
         auto& r = knobRow(s);
         addKnob(r, pid::lfo2Rate, "Rate");
         addKnob(r, pid::lfo2Depth, "Depth");
     }
     {
-        auto& s = addSection("Perform", { 1004, 324, 204, 144 });
+        auto& s = addSection("Perform / Ring", { 980, 324, 228, 144 });
         auto& r = knobRow(s);
         addKnob(r, pid::glide, "Glide");
+        addKnob(r, pid::rmFreq, "RM Freq");
+        addKnob(r, pid::rmMix, "RM Mix");
         addKnob(r, pid::gain, "Master");
     }
 
@@ -127,13 +162,16 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     }
     {
         auto& s = addSection("Tremolo", { 632, 474, 166, 144 });
-        addCombo(comboRow(s), pid::tremShape);
+        auto& c = comboRow(s);
+        addCombo(c, pid::tremShape);
+        addCombo(c, pid::tremSync);
         auto& r = knobRow(s);
         addKnob(r, pid::tremRate, "Rate");
         addKnob(r, pid::tremDepth, "Depth");
     }
     {
         auto& s = addSection("Delay", { 806, 474, 170, 144 });
+        addCombo(comboRow(s), pid::delaySync);
         auto& r = knobRow(s);
         addKnob(r, pid::delayTime, "Time");
         addKnob(r, pid::delayFb, "Feedb");
@@ -161,6 +199,48 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     };
     addAndMakeVisible(presetBox);
 
+    auto presetDir = []
+    {
+        auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                       .getChildFile("Galdr Presets");
+        dir.createDirectory();
+        return dir;
+    };
+
+    saveButton.onClick = [this, presetDir]
+    {
+        chooser = std::make_unique<juce::FileChooser>("Save preset",
+                                                      presetDir().getChildFile("Preset.galdr"),
+                                                      "*.galdr");
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                 | juce::FileBrowserComponent::canSelectFiles,
+                             [this](const juce::FileChooser& fc)
+                             {
+                                 auto file = fc.getResult();
+                                 if (file == juce::File())
+                                     return;
+                                 if (auto xml = processorRef.apvts.copyState().createXml())
+                                     xml->writeTo(file.withFileExtension("galdr"));
+                             });
+    };
+    addAndMakeVisible(saveButton);
+
+    loadButton.onClick = [this, presetDir]
+    {
+        chooser = std::make_unique<juce::FileChooser>("Load preset", presetDir(), "*.galdr");
+        chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                 | juce::FileBrowserComponent::canSelectFiles,
+                             [this](const juce::FileChooser& fc)
+                             {
+                                 auto file = fc.getResult();
+                                 if (! file.existsAsFile())
+                                     return;
+                                 if (auto xml = juce::XmlDocument::parse(file))
+                                     processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
+                             });
+    };
+    addAndMakeVisible(loadButton);
+
     // ---- keyboard
     keyboard.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour(0xff2a2a30));
     keyboard.setColour(juce::MidiKeyboardComponent::blackNoteColourId, juce::Colour(0xff0c0c0e));
@@ -176,7 +256,10 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     // colours when notified of a look-and-feel change.
     setLookAndFeel(&lnf);
 
-    setSize(editorW, editorH);
+    setResizable(true, true);
+    getConstrainer()->setFixedAspectRatio((double) baseW / (double) baseH);
+    setResizeLimits(baseW * 3 / 4, baseH * 3 / 4, baseW * 2, baseH * 2);
+    setSize(baseW, baseH);
 }
 
 GaldrAudioProcessorEditor::~GaldrAudioProcessorEditor()
@@ -185,11 +268,12 @@ GaldrAudioProcessorEditor::~GaldrAudioProcessorEditor()
 }
 
 GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addSection(const juce::String& title,
-                                                                          juce::Rectangle<int> bounds)
+                                                                          juce::Rectangle<int> baseBounds)
 {
     auto& s = sections.emplace_back();
     s.title = title;
-    s.bounds = bounds;
+    s.baseBounds = baseBounds;
+    s.bounds = baseBounds;
     return s;
 }
 
@@ -212,6 +296,8 @@ void GaldrAudioProcessorEditor::addKnob(Row& row, const char* paramID, const juc
     auto* k = knobs.add(new Knob());
     k->slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     k->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 14);
+    if (auto* tip = tipFor(paramID))
+        k->slider.setTooltip(tip);
     addAndMakeVisible(k->slider);
 
     k->label.setText(name, juce::dontSendNotification);
@@ -228,6 +314,8 @@ void GaldrAudioProcessorEditor::addCombo(Row& row, const char* paramID)
     auto* c = combos.add(new juce::ComboBox());
     if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(processorRef.apvts.getParameter(paramID)))
         c->addItemList(choice->choices, 1);
+    if (auto* tip = tipFor(paramID))
+        c->setTooltip(tip);
     addAndMakeVisible(c);
 
     comboAttachments.push_back(std::make_unique<ComboBoxAttachment>(processorRef.apvts, paramID, *c));
@@ -235,29 +323,33 @@ void GaldrAudioProcessorEditor::addCombo(Row& row, const char* paramID)
     row.labels.push_back(nullptr);
 }
 
-void GaldrAudioProcessorEditor::layoutSection(Section& s)
+void GaldrAudioProcessorEditor::layoutSection(Section& s, float scale)
 {
-    int y = s.bounds.getY() + 20;
+    auto sc = [scale](int v) { return juce::roundToInt((float) v * scale); };
+
+    int y = s.bounds.getY() + sc(20);
     for (auto& row : s.rows)
     {
-        const int h = row.tall ? 94 : 28;
+        const int h = row.tall ? sc(94) : sc(28);
         const int n = (int) row.comps.size();
         if (n == 0)
             continue;
-        const int cw = (s.bounds.getWidth() - 12) / n;
-        const int x0 = s.bounds.getX() + 6;
+        const int cw = (s.bounds.getWidth() - sc(12)) / n;
+        const int x0 = s.bounds.getX() + sc(6);
 
         for (int i = 0; i < n; ++i)
         {
             juce::Rectangle<int> cell(x0 + i * cw, y, cw, h);
             if (row.tall)
             {
-                row.labels[(size_t) i]->setBounds(cell.removeFromTop(16));
+                row.labels[(size_t) i]->setBounds(cell.removeFromTop(sc(16)));
+                if (auto* slider = dynamic_cast<juce::Slider*>(row.comps[(size_t) i]))
+                    slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, sc(62), sc(14));
                 row.comps[(size_t) i]->setBounds(cell.reduced(1, 0));
             }
             else
             {
-                row.comps[(size_t) i]->setBounds(cell.reduced(4, 2));
+                row.comps[(size_t) i]->setBounds(cell.reduced(sc(4), 2));
             }
         }
         y += h + 2;
@@ -266,17 +358,32 @@ void GaldrAudioProcessorEditor::layoutSection(Section& s)
 
 void GaldrAudioProcessorEditor::resized()
 {
-    for (auto& s : sections)
-        layoutSection(s);
+    const float scale = (float) getWidth() / (float) baseW;
+    lnf.uiScale = scale;
+    auto sc = [scale](int v) { return juce::roundToInt((float) v * scale); };
 
-    presetBox.setBounds(editorW - 262, 20, 250, 26);
-    keyboard.setBounds(12, 626, editorW - 24, 70);
+    for (auto& s : sections)
+    {
+        s.bounds = { sc(s.baseBounds.getX()), sc(s.baseBounds.getY()),
+                     sc(s.baseBounds.getWidth()), sc(s.baseBounds.getHeight()) };
+        layoutSection(s, scale);
+    }
+
+    loadButton.setBounds(sc(baseW - 398), sc(20), sc(88), sc(26));
+    saveButton.setBounds(sc(baseW - 306), sc(20), sc(88), sc(26));
+    presetBox.setBounds(sc(baseW - 212), sc(20), sc(200), sc(26));
+
+    keyboard.setKeyWidth(16.0f * scale);
+    keyboard.setBounds(sc(12), sc(626), getWidth() - sc(24), sc(70));
+
+    repaint();
 }
 
 void GaldrAudioProcessorEditor::paint(juce::Graphics& g)
 {
     const auto w = (float) getWidth();
     const auto h = (float) getHeight();
+    const float scale = w / (float) baseW;
 
     juce::ColourGradient sky(juce::Colour(0xff111116), 0.0f, 0.0f,
                              juce::Colour(0xff07070a), 0.0f, h, false);
@@ -292,16 +399,18 @@ void GaldrAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillAll();
 
     // header
-    auto titleArea = juce::Rectangle<int>(20, 8, 260, 46);
-    g.setFont(lnf.getTitleFont(42.0f));
+    auto sc = [scale](int v) { return juce::roundToInt((float) v * scale); };
+    auto titleArea = juce::Rectangle<int>(sc(20), sc(8), sc(260), sc(46));
+    g.setFont(lnf.getTitleFont(42.0f * scale));
     g.setColour(theme::blood.withAlpha(0.6f));
-    g.drawText("Galdr", titleArea.translated(0, 2), juce::Justification::centredLeft);
+    g.drawText("Galdr", titleArea.translated(0, sc(2)), juce::Justification::centredLeft);
     g.setColour(theme::bone);
     g.drawText("Galdr", titleArea, juce::Justification::centredLeft);
 
-    g.setFont(lnf.getBodyFont(14.0f));
+    g.setFont(lnf.getBodyFont(14.0f * scale));
     g.setColour(theme::boneDim);
-    g.drawText("a grim & frostbitten polysynth", 22, 52, 400, 15, juce::Justification::centredLeft);
+    g.drawText("a grim & frostbitten polysynth", sc(22), sc(52), sc(400), sc(15),
+               juce::Justification::centredLeft);
 
     // section panels
     for (const auto& s : sections)
@@ -312,12 +421,13 @@ void GaldrAudioProcessorEditor::paint(juce::Graphics& g)
         g.setColour(theme::outline.withAlpha(0.8f));
         g.drawRect(b, 1);
 
-        g.setFont(lnf.getBodyFont(15.0f));
+        g.setFont(lnf.getBodyFont(15.0f * scale));
         g.setColour(theme::boneDim);
-        g.drawText(s.title, b.getX() + 8, b.getY() + 2, b.getWidth() - 16, 16,
+        g.drawText(s.title, b.getX() + sc(8), b.getY() + 2, b.getWidth() - sc(16), sc(16),
                    juce::Justification::centredLeft);
         g.setColour(theme::blood);
-        g.fillRect((float) b.getX() + 8.0f, (float) b.getY() + 18.0f, 24.0f, 1.5f);
+        g.fillRect((float) b.getX() + 8.0f * scale, (float) b.getY() + 18.0f * scale,
+                   24.0f * scale, 1.5f);
     }
 
     // outer frame and corner brackets

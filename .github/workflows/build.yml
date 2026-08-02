@@ -45,10 +45,10 @@ jobs:
           mkdir dist
           cd build/Galdr_artefacts/Release
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cmake -E tar cf "../../../dist/Galdr-Windows.zip" --format=zip VST3 Standalone
+            cmake -E tar cf "../../../dist/Galdr-Windows.zip" --format=zip VST3 CLAP Standalone
           else
             # tar preserves the executable bits that zip would lose
-            tar czf "../../../dist/Galdr-$RUNNER_OS.tar.gz" VST3 Standalone
+            tar czf "../../../dist/Galdr-$RUNNER_OS.tar.gz" VST3 CLAP Standalone
           fi
 
       - uses: actions/upload-artifact@v4

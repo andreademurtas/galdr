@@ -43,6 +43,7 @@ private:
     void updateSettings(int numSamples);
     void applyDistortion(juce::AudioBuffer<float>&);
     void applyCrusher(juce::AudioBuffer<float>&);
+    void applyRingMod(juce::AudioBuffer<float>&);
     void applyTremolo(juce::AudioBuffer<float>&);
     void applyDelay(juce::AudioBuffer<float>&);
     void applyReverbAndGain(juce::AudioBuffer<float>&);
@@ -61,6 +62,8 @@ private:
     juce::Random lfoRng;
 
     double sr = 44100.0;
+    float hostBpm = 120.0f;
+    float rmPhase = 0.0f;
     float lfo1Phase = 0.0f, lfo2Phase = 0.0f, tremPhase = 0.0f;
     float lfo1Held = 0.0f, lfo2Held = 0.0f;
     float tremSmooth = 1.0f, tremCoeff = 0.05f;

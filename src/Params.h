@@ -59,6 +59,17 @@ namespace pid
     inline constexpr auto lfo2Rate  = "lfo2Rate";
     inline constexpr auto lfo2Depth = "lfo2Depth";
 
+    // v0.2: tempo sync ("Free" or musical divisions of the host tempo)
+    inline constexpr auto lfo1Sync  = "lfo1Sync";
+    inline constexpr auto lfo2Sync  = "lfo2Sync";
+    inline constexpr auto tremSync  = "tremSync";
+    inline constexpr auto delaySync = "delaySync";
+
+    // v0.2: formant filter mode and ring modulator
+    inline constexpr auto vowel  = "vowel";
+    inline constexpr auto rmFreq = "rmFreq";
+    inline constexpr auto rmMix  = "rmMix";
+
     // fx chain
     inline constexpr auto distType  = "distType";
     inline constexpr auto distDrive = "distDrive";

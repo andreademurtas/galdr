@@ -34,6 +34,7 @@ public:
         int   filterType = 0;
         float cutoff = 12000.0f, resonance = 0.2f, filterDrive = 0.0f;
         float fEnvAmt = 0.0f, keytrack = 0.0f;
+        float vowel = 0.0f; // formant mode: 0..1 morphs A-E-I-O-U
 
         juce::ADSR::Parameters ampEnv, filtEnv;
         float glideSeconds = 0.0f;
@@ -50,6 +51,7 @@ public:
         const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) maxBlockSize, 2 };
         filter1.prepare(spec);
         filter2.prepare(spec);
+        filter3.prepare(spec);
     }
 
     bool canPlaySound(juce::SynthesiserSound* s) override
@@ -79,6 +81,7 @@ public:
 
         filter1.reset();
         filter2.reset();
+        filter3.reset();
         updateFilterType();
     }
 
@@ -178,12 +181,25 @@ public:
 
             l = std::tanh(l * driveGain);
             r = std::tanh(r * driveGain);
-            l = filter1.processSample(0, l);
-            r = filter1.processSample(1, r);
-            if (use24dB)
+            if (formantMode)
             {
-                l = filter2.processSample(0, l);
-                r = filter2.processSample(1, r);
+                const float inL = l, inR = r;
+                l = 1.5f * (filter1.processSample(0, inL)
+                            + 0.5f * filter2.processSample(0, inL)
+                            + 0.25f * filter3.processSample(0, inL));
+                r = 1.5f * (filter1.processSample(1, inR)
+                            + 0.5f * filter2.processSample(1, inR)
+                            + 0.25f * filter3.processSample(1, inR));
+            }
+            else
+            {
+                l = filter1.processSample(0, l);
+                r = filter1.processSample(1, r);
+                if (use24dB)
+                {
+                    l = filter2.processSample(0, l);
+                    r = filter2.processSample(1, r);
+                }
             }
 
             L[n] = l * level * aEnv;
@@ -217,21 +233,53 @@ private:
     void updateFilterType()
     {
         using T = juce::dsp::StateVariableTPTFilterType;
+        formantMode = settings.filterType == 4;
         use24dB = settings.filterType == 0;
         T t = T::lowpass;
-        if (settings.filterType == 2)      t = T::highpass;
-        else if (settings.filterType == 3) t = T::bandpass;
+        if (formantMode || settings.filterType == 3) t = T::bandpass;
+        else if (settings.filterType == 2)           t = T::highpass;
         filter1.setType(t);
         filter2.setType(t);
+        filter3.setType(T::bandpass);
     }
 
     void updateCutoff(float fEnv, float sr)
     {
-        float c = settings.cutoff
-                  * std::exp2(fEnv * settings.fEnvAmt * 4.0f
-                              + settings.lfoCutoffOctaves
-                              + (float) (note - 60) / 12.0f * settings.keytrack);
-        c = juce::jlimit(20.0f, juce::jmin(20000.0f, sr * 0.49f), c);
+        const float modOctaves = fEnv * settings.fEnvAmt * 4.0f
+                                 + settings.lfoCutoffOctaves
+                                 + (float) (note - 60) / 12.0f * settings.keytrack;
+        const float maxFreq = juce::jmin(20000.0f, sr * 0.49f);
+
+        if (formantMode)
+        {
+            // First three formants of A / E / I / O / U, morphed by the vowel param.
+            static constexpr float formantFreq[5][3] = {
+                { 800.0f, 1150.0f, 2900.0f },   // A
+                { 400.0f, 1600.0f, 2700.0f },   // E
+                { 350.0f, 1700.0f, 2700.0f },   // I
+                { 450.0f,  800.0f, 2830.0f },   // O
+                { 325.0f,  700.0f, 2700.0f } }; // U
+
+            const float pos = juce::jlimit(0.0f, 1.0f, settings.vowel) * 4.0f;
+            const int i0 = juce::jmin(3, (int) pos);
+            const float frac = pos - (float) i0;
+
+            // The cutoff knob shifts the whole formant set (1 kHz = neutral).
+            const float shift = (settings.cutoff / 1000.0f) * std::exp2(modOctaves);
+            const float q = 4.0f + settings.resonance * 8.0f;
+
+            juce::dsp::StateVariableTPTFilter<float>* filters[3] { &filter1, &filter2, &filter3 };
+            for (int k = 0; k < 3; ++k)
+            {
+                const float f = juce::jlimit(20.0f, maxFreq,
+                    (formantFreq[i0][k] + frac * (formantFreq[i0 + 1][k] - formantFreq[i0][k])) * shift);
+                filters[k]->setCutoffFrequency(f);
+                filters[k]->setResonance(q);
+            }
+            return;
+        }
+
+        const float c = juce::jlimit(20.0f, maxFreq, settings.cutoff * std::exp2(modOctaves));
         const float q = 0.5f + settings.resonance * 7.5f;
         filter1.setCutoffFrequency(c);
         filter1.setResonance(q);
@@ -250,11 +298,12 @@ private:
     juce::Random rng;
 
     juce::ADSR ampAdsr, filtAdsr;
-    juce::dsp::StateVariableTPTFilter<float> filter1, filter2;
+    juce::dsp::StateVariableTPTFilter<float> filter1, filter2, filter3;
     juce::AudioBuffer<float> voiceBuffer;
 
     int note = 60;
     float level = 0.0f;
     float currentFreq = 0.0f, targetFreq = 440.0f;
     bool use24dB = true;
+    bool formantMode = false;
 };

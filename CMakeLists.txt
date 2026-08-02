@@ -50,3 +50,9 @@ target_link_libraries(Galdr
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# CLAP export (MIT-licensed wrapper around the JUCE plugin target)
+add_subdirectory(modules/clap-juce-extensions EXCLUDE_FROM_ALL)
+clap_juce_extensions_plugin(TARGET Galdr
+    CLAP_ID "com.andreademurtas.galdr"
+    CLAP_FEATURES instrument synthesizer)

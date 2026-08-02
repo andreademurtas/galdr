@@ -43,7 +43,16 @@ public:
         setColour(juce::TextEditor::textColourId, theme::bone);
         setColour(juce::TextEditor::highlightColourId, theme::blood.withAlpha(0.4f));
         setColour(juce::CaretComponent::caretColourId, theme::bloodBright);
+        setColour(juce::TextButton::buttonColourId, theme::iron);
+        setColour(juce::TextButton::textColourOffId, theme::bone);
+        setColour(juce::TextButton::textColourOnId, theme::bone);
+        setColour(juce::TooltipWindow::backgroundColourId, theme::panel);
+        setColour(juce::TooltipWindow::textColourId, theme::bone);
+        setColour(juce::TooltipWindow::outlineColourId, theme::outline);
     }
+
+    // Set by the editor when the window is rescaled.
+    float uiScale = 1.0f;
 
     juce::Font getTitleFont(float height) const
     {
@@ -55,9 +64,25 @@ public:
         return juce::Font(juce::FontOptions(bodyTypeface).withHeight(height));
     }
 
-    juce::Font getLabelFont(juce::Label&) override        { return getBodyFont(15.0f); }
-    juce::Font getComboBoxFont(juce::ComboBox&) override  { return getBodyFont(17.0f); }
-    juce::Font getPopupMenuFont() override                { return getBodyFont(17.0f); }
+    juce::Font getLabelFont(juce::Label&) override        { return getBodyFont(15.0f * uiScale); }
+    juce::Font getComboBoxFont(juce::ComboBox&) override  { return getBodyFont(16.0f * uiScale); }
+    juce::Font getPopupMenuFont() override                { return getBodyFont(17.0f * uiScale); }
+
+    juce::Font getTextButtonFont(juce::TextButton&, int) override
+    {
+        return getBodyFont(15.0f * uiScale);
+    }
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour&,
+                              bool highlighted, bool down) override
+    {
+        auto r = button.getLocalBounds();
+        g.setColour(down ? theme::blood.withAlpha(0.5f)
+                         : highlighted ? theme::iron.brighter(0.3f) : theme::iron);
+        g.fillRect(r);
+        g.setColour(theme::outline);
+        g.drawRect(r, 1);
+    }
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                           float sliderPos, float rotaryStartAngle, float rotaryEndAngle,

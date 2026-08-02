@@ -7,6 +7,14 @@
 namespace
 {
 constexpr int numVoices = 12;
+
+// Beats per cycle for each entry of the sync choice params; 0 = free-running.
+float syncBeats(int index)
+{
+    static constexpr float beats[] = { 0.0f, 8.0f, 4.0f, 2.0f, 1.0f, 0.5f,
+                                       1.0f / 3.0f, 0.25f, 1.0f / 6.0f, 0.125f };
+    return beats[juce::jlimit(0, 9, index)];
+}
 }
 
 GaldrAudioProcessor::GaldrAudioProcessor()
@@ -64,6 +72,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
 
     const StringArray waveNames { "Saw", "Square", "Pulse", "Triangle", "Sine" };
     const StringArray lfoShapes { "Sine", "Triangle", "Saw", "Square", "S&H" };
+    const StringArray syncNames { "Free", "2/1", "1/1", "1/2", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" };
 
     const NormalisableRange<float> envRange(0.001f, 5.0f, 0.0f, 0.35f);
     const NormalisableRange<float> zeroOne(0.0f, 1.0f);
@@ -108,7 +117,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
 
     // FILTER
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::filterType, 1 }, "Filter Type",
-        StringArray { "LP 24", "LP 12", "HP", "BP" }, 0));
+        StringArray { "LP 24", "LP 12", "HP", "BP", "Formant" }, 0));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::vowel, 1 }, "Vowel", zeroOne, 0.0f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::cutoff, 1 }, "Cutoff", freqRange, 12000.0f, hertz));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::resonance, 1 }, "Resonance", zeroOne, 0.2f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::filterDrive, 1 }, "Filter Drive", zeroOne, 0.0f, percent));
@@ -137,6 +147,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo2Rate, 1 }, "LFO 2 Rate",
         NormalisableRange<float>(0.02f, 20.0f, 0.0f, 0.5f), 0.5f, hertz));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::lfo2Depth, 1 }, "To Cutoff", zeroOne, 0.0f, percent));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo1Sync, 1 }, "LFO 1 Sync", syncNames, 0));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::lfo2Sync, 1 }, "LFO 2 Sync", syncNames, 0));
 
     // FX
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::distType, 1 }, "Dist Type",
@@ -157,10 +169,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
 
     add(std::make_unique<AudioParameterChoice>(ParameterID { pid::tremShape, 1 }, "Trem Shape",
         StringArray { "Square", "Sine" }, 0));
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::tremSync, 1 }, "Trem Sync", syncNames, 0));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::tremRate, 1 }, "Trem Rate",
         NormalisableRange<float>(0.5f, 30.0f, 0.0f, 0.5f), 13.0f, hertz));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::tremDepth, 1 }, "Trem Depth", zeroOne, 0.0f, percent));
 
+    add(std::make_unique<AudioParameterChoice>(ParameterID { pid::delaySync, 1 }, "Delay Sync", syncNames, 0));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::delayTime, 1 }, "Delay Time",
         NormalisableRange<float>(0.02f, 1.5f, 0.0f, 0.5f), 0.45f, seconds));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::delayFb, 1 }, "Feedback",
@@ -171,6 +185,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revDamp, 1 }, "Damp", zeroOne, 0.3f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revWidth, 1 }, "Width", zeroOne, 1.0f, percent));
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::revMix, 1 }, "Reverb Mix", zeroOne, 0.25f, percent));
+
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::rmFreq, 1 }, "RM Freq",
+        NormalisableRange<float>(20.0f, 5000.0f, 0.0f, 0.3f), 250.0f, hertz));
+    add(std::make_unique<AudioParameterFloat>(ParameterID { pid::rmMix, 1 }, "RM Mix", zeroOne, 0.0f, percent));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { pid::gain, 1 }, "Gain", zeroOne, 0.8f, percent));
 
@@ -266,6 +284,7 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
     settings.fEnvAmt     = raw(pid::fEnvAmt);
     settings.keytrack    = raw(pid::keytrack);
 
+    settings.vowel = raw(pid::vowel);
     settings.ampEnv  = { raw(pid::attack), raw(pid::decay), raw(pid::sustain), raw(pid::release) };
     settings.filtEnv = { raw(pid::fAttack), raw(pid::fDecay), raw(pid::fSustain), raw(pid::fRelease) };
     settings.glideSeconds = raw(pid::glide);
@@ -280,11 +299,17 @@ void GaldrAudioProcessor::updateSettings(int numSamples)
         return wrapped;
     };
 
-    const bool w1 = advance(lfo1Phase, raw(pid::lfo1Rate));
+    auto lfoRate = [this](const char* rateId, const char* syncId)
+    {
+        const float beats = syncBeats((int) raw(syncId));
+        return beats > 0.0f ? hostBpm / 60.0f / beats : raw(rateId);
+    };
+
+    const bool w1 = advance(lfo1Phase, lfoRate(pid::lfo1Rate, pid::lfo1Sync));
     const float v1 = lfoShapeValue((int) raw(pid::lfo1Shape), lfo1Phase, lfo1Held, w1);
     settings.vibratoFactor = std::exp2(v1 * raw(pid::lfo1Depth) * 100.0f / 1200.0f);
 
-    const bool w2 = advance(lfo2Phase, raw(pid::lfo2Rate));
+    const bool w2 = advance(lfo2Phase, lfoRate(pid::lfo2Rate, pid::lfo2Sync));
     const float v2 = lfoShapeValue((int) raw(pid::lfo2Shape), lfo2Phase, lfo2Held, w2);
     settings.lfoCutoffOctaves = v2 * raw(pid::lfo2Depth) * 3.0f;
 }
@@ -341,10 +366,38 @@ void GaldrAudioProcessor::applyCrusher(juce::AudioBuffer<float>& buffer)
     }
 }
 
+void GaldrAudioProcessor::applyRingMod(juce::AudioBuffer<float>& buffer)
+{
+    const float mix = raw(pid::rmMix);
+    const float inc = raw(pid::rmFreq) / (float) sr;
+    const int n = buffer.getNumSamples();
+
+    if (mix < 0.001f)
+    {
+        rmPhase = std::fmod(rmPhase + inc * (float) n, 1.0f);
+        return;
+    }
+
+    const int channels = buffer.getNumChannels();
+    for (int i = 0; i < n; ++i)
+    {
+        rmPhase += inc;
+        if (rmPhase >= 1.0f)
+            rmPhase -= 1.0f;
+        const float carrier = std::sin(rmPhase * juce::MathConstants<float>::twoPi);
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            auto& s = buffer.getWritePointer(ch)[i];
+            s = s * (1.0f - mix) + s * carrier * mix;
+        }
+    }
+}
+
 void GaldrAudioProcessor::applyTremolo(juce::AudioBuffer<float>& buffer)
 {
     const float depth = raw(pid::tremDepth);
-    const float rate = raw(pid::tremRate);
+    const float tremBeats = syncBeats((int) raw(pid::tremSync));
+    const float rate = tremBeats > 0.0f ? hostBpm / 60.0f / tremBeats : raw(pid::tremRate);
     const bool sine = (int) raw(pid::tremShape) == 1;
     const float inc = rate / (float) sr;
 
@@ -376,7 +429,11 @@ void GaldrAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer)
 {
     const float mix = raw(pid::delayMix);
     const float fb = raw(pid::delayFb);
-    delaySamplesSm.setTargetValue(raw(pid::delayTime) * (float) sr);
+    const float delayBeats = syncBeats((int) raw(pid::delaySync));
+    const float timeSeconds = delayBeats > 0.0f
+        ? juce::jlimit(0.02f, 2.0f, delayBeats * 60.0f / hostBpm)
+        : raw(pid::delayTime);
+    delaySamplesSm.setTargetValue(timeSeconds * (float) sr);
 
     const int channels = juce::jmin(2, buffer.getNumChannels());
     for (int i = 0; i < buffer.getNumSamples(); ++i)
@@ -428,6 +485,11 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
 
+    if (auto* head = getPlayHead())
+        if (auto position = head->getPosition())
+            if (auto bpm = position->getBpm())
+                hostBpm = juce::jlimit(20.0f, 999.0f, (float) *bpm);
+
     keyboardState.processNextMidiBuffer(midiMessages, 0, numSamples, true);
     buffer.clear();
 
@@ -436,6 +498,7 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 
     applyDistortion(buffer);
     applyCrusher(buffer);
+    applyRingMod(buffer);
 
     {
         chorus.setRate(raw(pid::chorusRate));
