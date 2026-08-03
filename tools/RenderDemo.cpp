@@ -23,7 +23,7 @@ struct NoteEvent
 struct Segment
 {
     juce::String name;
-    int presetIndex;
+    const char* presetName; // looked up by name so preset reordering never breaks demos
     std::vector<std::pair<const char*, float>> tweaks;
     std::vector<NoteEvent> notes;
     double tailSeconds;
@@ -39,45 +39,40 @@ std::vector<Segment> buildSegments()
 {
     // E minor throughout; note numbers are MIDI.
     return {
-        { "Buzzsaw Wall", 1, {},
+        { "Buzzsaw Wall", "Buzzsaw Wall", {},
           { { 40, 0.0, 2.6, 0.9f }, { 47, 0.0, 2.6, 0.85f }, { 52, 0.0, 2.6, 0.8f },
             { 36, 2.8, 2.7, 0.9f }, { 43, 2.8, 2.7, 0.85f }, { 48, 2.8, 2.7, 0.8f } },
           3.0 },
 
-        { "Frostbitten Pad", 2, {},
+        { "Frostbitten Pad", "Frostbitten Pad", {},
           { { 52, 0.0, 7.0, 0.7f }, { 55, 0.0, 7.0, 0.7f },
             { 59, 0.0, 7.0, 0.7f }, { 66, 0.0, 7.0, 0.65f } },
           5.0 },
 
-        { "Necro Lead", 3, {},
+        { "Necro Lead", "Necro Lead", {},
           { { 64, 0.0, 0.45, 0.9f }, { 67, 0.5, 0.45, 0.85f }, { 69, 1.0, 0.45, 0.9f },
             { 71, 1.5, 0.95, 0.95f }, { 74, 2.5, 0.45, 0.9f }, { 71, 3.0, 0.45, 0.85f },
             { 69, 3.5, 0.45, 0.85f }, { 67, 4.0, 0.95, 0.9f }, { 64, 5.0, 1.4, 0.95f } },
           3.0 },
 
-        { "Cavern Drone", 4, {},
+        { "Cavern Drone", "Cavern Drone", {},
           { { 28, 0.0, 7.0, 0.9f }, { 40, 0.0, 7.0, 0.8f }, { 47, 0.5, 6.5, 0.7f } },
           5.0 },
 
-        { "Winter Sigil", 5, {},
+        { "Winter Sigil", "Winter Sigil", {},
           { { 52, 0.0, 7.0, 0.75f }, { 59, 0.0, 7.0, 0.7f },
             { 62, 0.0, 7.0, 0.7f }, { 66, 0.5, 6.5, 0.65f } },
           5.0 },
 
-        { "Frozen Choir", 6, {},
+        { "Frozen Choir", "Frozen Choir", {},
           { { 52, 0.0, 6.0, 0.8f }, { 55, 0.0, 6.0, 0.75f }, { 59, 0.0, 6.0, 0.75f } },
           4.0 },
 
-        { "Shrieking Gale", 7, {},
+        { "Shrieking Gale", "Shrieking Gale", {},
           { { 71, 0.0, 5.0, 0.9f } },
           4.0 },
 
-        { "Arpeggiator", 0,
-          { { pid::arpMode, 1 }, { pid::arpOct, 2 }, { pid::arpRate, 5 },
-            { pid::osc1Uni, 5 }, { pid::osc1Det, 18 }, { pid::osc1Spread, 0.8f },
-            { pid::distDrive, 0.4f },
-            { pid::delayMix, 0.25f }, { pid::delaySync, 5 },
-            { pid::revMix, 0.3f } },
+        { "Court of Icicles", "Court of Icicles", {},
           { { 52, 0.0, 6.0, 0.85f }, { 55, 0.0, 6.0, 0.8f }, { 59, 0.0, 6.0, 0.8f } },
           3.0 },
     };
@@ -114,7 +109,7 @@ int main(int argc, char* argv[])
 
     for (const auto& seg : buildSegments())
     {
-        presets::apply(processor.apvts, seg.presetIndex);
+        presets::apply(processor.apvts, presets::indexOf(seg.presetName));
         for (const auto& [id, value] : seg.tweaks)
             setParam(processor, id, value);
         processor.prepareToPlay(sampleRate, blockSize);

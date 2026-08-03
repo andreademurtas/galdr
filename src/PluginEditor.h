@@ -50,7 +50,7 @@ private:
     void layoutSection(Section&, float scale);
 
     void refreshPresetList();
-    void applyPresetIndex(int index);
+    void applyPresetById(int id);
     static juce::File presetDirectory();
 
     void drawRidge(juce::Graphics&, float baseY, float amplitude, int seedStep,
@@ -69,7 +69,7 @@ private:
     juce::TooltipWindow tooltipWindow { this };
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Array<juce::File> userPresetFiles;
-    int factoryCount = 0;
+    juce::Array<int> presetIds; // combo item ids in display order (1000+ factory, 2000+ user)
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<juce::ComboBox> combos;

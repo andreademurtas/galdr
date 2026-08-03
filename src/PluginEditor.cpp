@@ -265,19 +265,21 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     presetBox.setTextWhenNothingSelected("Presets");
     presetBox.onChange = [this]
     {
-        const int idx = presetBox.getSelectedItemIndex();
-        if (idx >= 0)
-            applyPresetIndex(idx);
+        const int id = presetBox.getSelectedId();
+        if (id > 0)
+            applyPresetById(id);
     };
     addAndMakeVisible(presetBox);
 
     auto step = [this](int delta)
     {
-        const int total = presetBox.getNumItems();
-        if (total == 0)
+        if (presetIds.isEmpty())
             return;
-        const int current = juce::jmax(0, presetBox.getSelectedItemIndex());
-        presetBox.setSelectedItemIndex(((current + delta) % total + total) % total);
+        int pos = presetIds.indexOf(presetBox.getSelectedId());
+        if (pos < 0)
+            pos = delta > 0 ? -1 : 0;
+        const int n = presetIds.size();
+        presetBox.setSelectedId(presetIds[((pos + delta) % n + n) % n]);
     };
     presetPrev.onClick = [step] { step(-1); };
     presetNext.onClick = [step] { step(1); };
@@ -391,31 +393,46 @@ juce::File GaldrAudioProcessorEditor::presetDirectory()
 void GaldrAudioProcessorEditor::refreshPresetList()
 {
     presetBox.clear(juce::dontSendNotification);
-    factoryCount = (int) presets::all().size();
-    int itemId = 1;
-    for (const auto& preset : presets::all())
-        presetBox.addItem(preset.name, itemId++);
+    presetIds.clearQuick();
+
+    juce::String lastCategory;
+    const auto& factory = presets::all();
+    for (int i = 0; i < (int) factory.size(); ++i)
+    {
+        const auto& preset = factory[(size_t) i];
+        if (lastCategory != preset.category)
+        {
+            lastCategory = preset.category;
+            presetBox.addSectionHeading(lastCategory);
+        }
+        presetBox.addItem(preset.name, 1000 + i);
+        presetIds.add(1000 + i);
+    }
 
     userPresetFiles = presetDirectory().findChildFiles(juce::File::findFiles, false, "*.galdr");
     if (! userPresetFiles.isEmpty())
     {
-        presetBox.addSeparator();
-        for (const auto& file : userPresetFiles)
-            presetBox.addItem(file.getFileNameWithoutExtension(), itemId++);
+        presetBox.addSectionHeading("User");
+        for (int j = 0; j < userPresetFiles.size(); ++j)
+        {
+            presetBox.addItem(userPresetFiles[j].getFileNameWithoutExtension(), 2000 + j);
+            presetIds.add(2000 + j);
+        }
     }
 }
 
-void GaldrAudioProcessorEditor::applyPresetIndex(int index)
+void GaldrAudioProcessorEditor::applyPresetById(int id)
 {
-    if (index < factoryCount)
+    if (id >= 2000)
     {
-        presets::apply(processorRef.apvts, index);
+        const int userIndex = id - 2000;
+        if (userIndex >= 0 && userIndex < userPresetFiles.size())
+            if (auto xml = juce::XmlDocument::parse(userPresetFiles[userIndex]))
+                processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
         return;
     }
-    const int userIndex = index - factoryCount;
-    if (userIndex >= 0 && userIndex < userPresetFiles.size())
-        if (auto xml = juce::XmlDocument::parse(userPresetFiles[userIndex]))
-            processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    if (id >= 1000)
+        presets::apply(processorRef.apvts, id - 1000);
 }
 
 GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addSection(const juce::String& title,
