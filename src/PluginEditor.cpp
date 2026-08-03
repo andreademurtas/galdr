@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Andrea De Murtas
 
 #include "PluginEditor.h"
-#include "Presets.h"
 
 namespace
 {
@@ -260,66 +259,37 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     addCustomSection("Oscilloscope", { 360, 780, 420, 148 }, scope);
     addCustomSection("Spectrum", { 788, 780, 420, 148 }, spectrum);
 
-    // ---- preset browser
-    refreshPresetList();
-    presetBox.setTextWhenNothingSelected("Presets");
-    presetBox.onChange = [this]
-    {
-        const int id = presetBox.getSelectedId();
-        if (id > 0)
-            applyPresetById(id);
-    };
-    addAndMakeVisible(presetBox);
+    // ---- preset browser and header controls
+    presetBrowser = std::make_unique<PresetBrowser>(processorRef, lnf);
+    addChildComponent(*presetBrowser);
 
-    auto step = [this](int delta)
+    presetNameButton.setButtonText("Init");
+    presetNameButton.setTooltip("Open the preset browser");
+    presetNameButton.onClick = [this]
     {
-        if (presetIds.isEmpty())
-            return;
-        int pos = presetIds.indexOf(presetBox.getSelectedId());
-        if (pos < 0)
-            pos = delta > 0 ? -1 : 0;
-        const int n = presetIds.size();
-        presetBox.setSelectedId(presetIds[((pos + delta) % n + n) % n]);
+        if (presetBrowser->isVisible())
+            presetBrowser->setVisible(false);
+        else
+            presetBrowser->open(false);
     };
-    presetPrev.onClick = [step] { step(-1); };
-    presetNext.onClick = [step] { step(1); };
+    addAndMakeVisible(presetNameButton);
+
+    presetPrev.onClick = [this] { presetBrowser->step(-1); };
+    presetNext.onClick = [this] { presetBrowser->step(1); };
     addAndMakeVisible(presetPrev);
     addAndMakeVisible(presetNext);
 
-    saveButton.onClick = [this]
-    {
-        chooser = std::make_unique<juce::FileChooser>("Save preset",
-                                                      presetDirectory().getChildFile("Preset.galdr"),
-                                                      "*.galdr");
-        chooser->launchAsync(juce::FileBrowserComponent::saveMode
-                                 | juce::FileBrowserComponent::canSelectFiles,
-                             [this](const juce::FileChooser& fc)
-                             {
-                                 auto file = fc.getResult();
-                                 if (file == juce::File())
-                                     return;
-                                 if (auto xml = processorRef.apvts.copyState().createXml())
-                                     xml->writeTo(file.withFileExtension("galdr"));
-                                 refreshPresetList();
-                             });
-    };
+    saveButton.setTooltip("Save the current sound as a user preset");
+    saveButton.onClick = [this] { presetBrowser->open(true); };
     addAndMakeVisible(saveButton);
 
-    loadButton.onClick = [this]
-    {
-        chooser = std::make_unique<juce::FileChooser>("Load preset", presetDirectory(), "*.galdr");
-        chooser->launchAsync(juce::FileBrowserComponent::openMode
-                                 | juce::FileBrowserComponent::canSelectFiles,
-                             [this](const juce::FileChooser& fc)
-                             {
-                                 auto file = fc.getResult();
-                                 if (! file.existsAsFile())
-                                     return;
-                                 if (auto xml = juce::XmlDocument::parse(file))
-                                     processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
-                             });
-    };
-    addAndMakeVisible(loadButton);
+    // ---- undo / redo
+    undoButton.setTooltip("Undo (Ctrl+Z)");
+    redoButton.setTooltip("Redo (Ctrl+Shift+Z)");
+    undoButton.onClick = [this] { processorRef.undoManager.undo(); };
+    redoButton.onClick = [this] { processorRef.undoManager.redo(); };
+    addAndMakeVisible(undoButton);
+    addAndMakeVisible(redoButton);
 
     // ---- microtuning
     tuningButton.setButtonText(processorRef.getTuningName());
@@ -375,6 +345,9 @@ GaldrAudioProcessorEditor::GaldrAudioProcessorEditor(GaldrAudioProcessor& p)
     getConstrainer()->setFixedAspectRatio((double) baseW / (double) baseH);
     setResizeLimits(baseW * 3 / 4, baseH * 3 / 4, baseW * 2, baseH * 2);
     setSize(baseW, baseH);
+
+    setWantsKeyboardFocus(true);
+    startTimerHz(4);
 }
 
 GaldrAudioProcessorEditor::~GaldrAudioProcessorEditor()
@@ -382,57 +355,85 @@ GaldrAudioProcessorEditor::~GaldrAudioProcessorEditor()
     setLookAndFeel(nullptr);
 }
 
-juce::File GaldrAudioProcessorEditor::presetDirectory()
+void GaldrAudioProcessorEditor::timerCallback()
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                   .getChildFile("Galdr Presets");
-    dir.createDirectory();
-    return dir;
+    // Group the parameter edits since the last tick into one undoable step.
+    processorRef.undoManager.beginNewTransaction();
+    undoButton.setEnabled(processorRef.undoManager.canUndo());
+    redoButton.setEnabled(processorRef.undoManager.canRedo());
+
+    auto name = processorRef.apvts.state.getProperty("presetName").toString();
+    if (name.isEmpty())
+        name = "Init";
+    if (processorRef.presetDirty.load())
+        name += " *";
+    presetNameButton.setButtonText(name);
+
+    tuningButton.setButtonText(processorRef.getTuningName());
 }
 
-void GaldrAudioProcessorEditor::refreshPresetList()
+bool GaldrAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 {
-    presetBox.clear(juce::dontSendNotification);
-    presetIds.clearQuick();
-
-    juce::String lastCategory;
-    const auto& factory = presets::all();
-    for (int i = 0; i < (int) factory.size(); ++i)
+    if (key == juce::KeyPress::escapeKey && presetBrowser->isVisible())
     {
-        const auto& preset = factory[(size_t) i];
-        if (lastCategory != preset.category)
-        {
-            lastCategory = preset.category;
-            presetBox.addSectionHeading(lastCategory);
-        }
-        presetBox.addItem(preset.name, 1000 + i);
-        presetIds.add(1000 + i);
+        presetBrowser->setVisible(false);
+        return true;
     }
-
-    userPresetFiles = presetDirectory().findChildFiles(juce::File::findFiles, false, "*.galdr");
-    if (! userPresetFiles.isEmpty())
-    {
-        presetBox.addSectionHeading("User");
-        for (int j = 0; j < userPresetFiles.size(); ++j)
-        {
-            presetBox.addItem(userPresetFiles[j].getFileNameWithoutExtension(), 2000 + j);
-            presetIds.add(2000 + j);
-        }
-    }
+    const auto cmd = juce::ModifierKeys::commandModifier;
+    if (key == juce::KeyPress('z', cmd, 0))
+        return processorRef.undoManager.undo();
+    if (key == juce::KeyPress('z', cmd | juce::ModifierKeys::shiftModifier, 0)
+        || key == juce::KeyPress('y', cmd, 0))
+        return processorRef.undoManager.redo();
+    return false;
 }
 
-void GaldrAudioProcessorEditor::applyPresetById(int id)
+void GaldrAudioProcessorEditor::showParamMenu(GaldrSlider& slider, const juce::String& paramID)
 {
-    if (id >= 2000)
-    {
-        const int userIndex = id - 2000;
-        if (userIndex >= 0 && userIndex < userPresetFiles.size())
-            if (auto xml = juce::XmlDocument::parse(userPresetFiles[userIndex]))
-                processorRef.apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    auto* param = processorRef.apvts.getParameter(paramID);
+    if (param == nullptr)
         return;
-    }
-    if (id >= 1000)
-        presets::apply(processorRef.apvts, id - 1000);
+
+    const int mappedCC = processorRef.midiCCFor(paramID);
+    const bool learning = processorRef.isMidiLearnArmed();
+
+    juce::PopupMenu menu;
+    menu.setLookAndFeel(&lnf);
+    menu.addItem(1, "Reset to default");
+    if (slider.getTextBoxPosition() != juce::Slider::NoTextBox)
+        menu.addItem(2, "Enter value...");
+    menu.addSeparator();
+    if (learning)
+        menu.addItem(5, "Cancel MIDI learn");
+    else
+        menu.addItem(3, "MIDI learn");
+    if (mappedCC >= 0)
+        menu.addItem(4, "Clear MIDI map (CC " + juce::String(mappedCC) + ")");
+
+    juce::Component::SafePointer<GaldrAudioProcessorEditor> safeThis(this);
+    juce::Component::SafePointer<juce::Slider> safeSlider(&slider);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(slider),
+        [safeThis, safeSlider, param, paramID](int result)
+        {
+            if (safeThis == nullptr)
+                return;
+            switch (result)
+            {
+                case 1:
+                    param->beginChangeGesture();
+                    param->setValueNotifyingHost(param->getDefaultValue());
+                    param->endChangeGesture();
+                    break;
+                case 2:
+                    if (safeSlider != nullptr)
+                        safeSlider->showTextBox();
+                    break;
+                case 3: safeThis->processorRef.armMidiLearn(paramID); break;
+                case 4: safeThis->processorRef.clearMidiCC(paramID); break;
+                case 5: safeThis->processorRef.cancelMidiLearn(); break;
+                default: break;
+            }
+        });
 }
 
 GaldrAudioProcessorEditor::Section& GaldrAudioProcessorEditor::addSection(const juce::String& title,
@@ -473,6 +474,7 @@ void GaldrAudioProcessorEditor::addKnob(Row& row, const char* paramID, const juc
     auto* k = knobs.add(new Knob());
     k->slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     k->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 62, 14);
+    k->slider.onRightClick = [this, k, id = juce::String(paramID)] { showParamMenu(k->slider, id); };
     if (auto* tip = tipFor(paramID))
         k->slider.setTooltip(tip);
     addAndMakeVisible(k->slider);
@@ -502,10 +504,11 @@ void GaldrAudioProcessorEditor::addCombo(Row& row, const char* paramID)
 
 void GaldrAudioProcessorEditor::addHSlider(Row& row, const char* paramID)
 {
-    auto* s = hsliders.add(new juce::Slider());
+    auto* s = hsliders.add(new GaldrSlider());
     s->setSliderStyle(juce::Slider::LinearHorizontal);
     s->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     s->setPopupDisplayEnabled(true, true, this);
+    s->onRightClick = [this, s, id = juce::String(paramID)] { showParamMenu(*s, id); };
     addAndMakeVisible(s);
 
     sliderAttachments.push_back(std::make_unique<SliderAttachment>(processorRef.apvts, paramID, *s));
@@ -565,15 +568,18 @@ void GaldrAudioProcessorEditor::resized()
         layoutSection(s, scale);
     }
 
-    tuningButton.setBounds(sc(baseW - 560), sc(20), sc(104), sc(26));
-    loadButton.setBounds(sc(baseW - 448), sc(20), sc(66), sc(26));
-    saveButton.setBounds(sc(baseW - 378), sc(20), sc(66), sc(26));
+    tuningButton.setBounds(sc(baseW - 690), sc(20), sc(104), sc(26));
+    undoButton.setBounds(sc(baseW - 578), sc(20), sc(52), sc(26));
+    redoButton.setBounds(sc(baseW - 522), sc(20), sc(52), sc(26));
+    saveButton.setBounds(sc(baseW - 458), sc(20), sc(60), sc(26));
     presetPrev.setBounds(sc(baseW - 306), sc(20), sc(26), sc(26));
-    presetBox.setBounds(sc(baseW - 276), sc(20), sc(240), sc(26));
+    presetNameButton.setBounds(sc(baseW - 276), sc(20), sc(240), sc(26));
     presetNext.setBounds(sc(baseW - 32), sc(20), sc(20), sc(26));
 
     keyboard.setKeyWidth(16.0f * scale);
     keyboard.setBounds(sc(12), sc(934), getWidth() - sc(24), sc(70));
+
+    presetBrowser->setBounds(getLocalBounds());
 
     repaint();
 }

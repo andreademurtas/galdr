@@ -38,16 +38,23 @@ Hear the factory presets, rendered offline straight from the engine by
   with a free third envelope
 - Tempo-synced arpeggiator (up/down/up-down/random/as-played, up to 4 octaves)
 - Two LFOs, glide, separate amp and filter envelopes
-- MPE-friendly per-note pitch bend and pressure; Scala (.scl) microtuning
+- MPE-friendly per-note pitch bend and pressure; Scala (.scl) microtuning,
+  with the scale embedded in saved sessions and presets
 - Genre FX chain with the nonlinear stages oversampled 2x: four-flavour
   distortion, bitcrusher, ring modulator, chorus, tremolo picking, delay and a
   dark FDN cavern reverb with predelay and octave-up shimmer
 - "Blizzard": a granular snowstorm texture layer
 - Tempo sync for LFOs, tremolo and delay (musical divisions of the host tempo)
-- 27 factory presets in categories (leads, basses, keys and bells, pads and
-  choirs, drones, textures, arpeggios) plus user preset save/load, oscilloscope
-  and spectrum analyser, on-screen MIDI keyboard
+- Full-page preset browser: 27 factory presets in categories (leads, basses,
+  keys and bells, pads and choirs, drones, textures, arpeggios) plus user
+  presets with author/description metadata, search and prev/next stepping
+- Undo/redo (Ctrl+Z / Ctrl+Shift+Z) and MIDI learn: right-click any knob to
+  reset it, type a value or bind an incoming CC (mappings saved with the
+  session)
+- Oscilloscope and spectrum analyser, on-screen MIDI keyboard
 - Dark-fantasy themed GUI, resizable, with tooltips
+- Versioned session/preset state: patches saved today keep loading in future
+  versions
 - VST3, CLAP, AU (macOS) and standalone builds for Windows, macOS and Linux
 
 ## Building

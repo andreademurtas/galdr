@@ -6,8 +6,10 @@
 #include "PluginProcessor.h"
 #include "BlackMetalLookAndFeel.h"
 #include "Visualizers.h"
+#include "PresetBrowser.h"
 
-class GaldrAudioProcessorEditor : public juce::AudioProcessorEditor
+class GaldrAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                  private juce::Timer
 {
 public:
     explicit GaldrAudioProcessorEditor(GaldrAudioProcessor&);
@@ -15,11 +17,29 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
 
 private:
+    // Slider whose right click opens the parameter menu instead of dragging.
+    struct GaldrSlider : juce::Slider
+    {
+        std::function<void()> onRightClick;
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu())
+            {
+                if (onRightClick)
+                    onRightClick();
+                return;
+            }
+            juce::Slider::mouseDown(e);
+        }
+    };
+
     struct Knob
     {
-        juce::Slider slider;
+        GaldrSlider slider;
         juce::Label label;
     };
 
@@ -49,9 +69,8 @@ private:
     void addHSlider(Row&, const char* paramID);
     void layoutSection(Section&, float scale);
 
-    void refreshPresetList();
-    void applyPresetById(int id);
-    static juce::File presetDirectory();
+    void showParamMenu(GaldrSlider&, const juce::String& paramID);
+    void timerCallback() override;
 
     void drawRidge(juce::Graphics&, float baseY, float amplitude, int seedStep,
                    juce::Colour colour) const;
@@ -63,17 +82,17 @@ private:
     galdr::ScopeComponent scope;
     galdr::SpectrumComponent spectrum;
 
-    juce::ComboBox presetBox;
     juce::TextButton presetPrev { "<" }, presetNext { ">" };
-    juce::TextButton saveButton { "Save" }, loadButton { "Load" }, tuningButton;
+    juce::TextButton presetNameButton;
+    juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };
+    juce::TextButton saveButton { "Save" }, tuningButton;
     juce::TooltipWindow tooltipWindow { this };
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::Array<juce::File> userPresetFiles;
-    juce::Array<int> presetIds; // combo item ids in display order (1000+ factory, 2000+ user)
+    std::unique_ptr<PresetBrowser> presetBrowser;
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<juce::ComboBox> combos;
-    juce::OwnedArray<juce::Slider> hsliders;
+    juce::OwnedArray<GaldrSlider> hsliders;
     std::vector<Section> sections;
 
     using SliderAttachment   = juce::AudioProcessorValueTreeState::SliderAttachment;

@@ -12,10 +12,12 @@
 #include "ScalaTuning.h"
 #include "Visualizers.h"
 
-class GaldrAudioProcessor : public juce::AudioProcessor
+class GaldrAudioProcessor : public juce::AudioProcessor,
+                            private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     GaldrAudioProcessor();
+    ~GaldrAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -44,11 +46,30 @@ public:
     void resetTuning();
     juce::String getTuningName() const { return tuning.name; }
 
+    // Versioned state. captureFullState is what the host stores; preset files
+    // use capturePresetState (no MIDI map: controller setup is not a sound).
+    // applyStateTree migrates old versions and restores tuning and mappings.
+    static constexpr int stateVersion = 1;
+    juce::ValueTree captureFullState();
+    juce::ValueTree capturePresetState();
+    void applyStateTree(juce::ValueTree tree);
+
+    // MIDI learn: arm a parameter, the next incoming CC binds to it.
+    void armMidiLearn(const juce::String& paramID);
+    void cancelMidiLearn()          { midiLearnTarget.store(nullptr); }
+    bool isMidiLearnArmed() const   { return midiLearnTarget.load() != nullptr; }
+    int  midiCCFor(const juce::String& paramID) const;
+    void clearMidiCC(const juce::String& paramID);
+
+    juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
     juce::MidiKeyboardState keyboardState;
     galdr::VisFifo scopeFifo, spectrumFifo;
+    std::atomic<bool> presetDirty { false };
 
 private:
+    void parameterChanged(const juce::String&, float) override { presetDirty.store(true); }
+    static void migrateState(juce::ValueTree& state, int fromVersion);
     void updateSettings(int numSamples);
     void scanMidiControllers(const juce::MidiBuffer&);
     void processArp(juce::MidiBuffer&, int numSamples);
@@ -66,6 +87,10 @@ private:
     GaldrSynth synth;
     GaldrVoice::Settings settings;
     galdr::Tuning tuning;
+
+    // MIDI CC -> parameter map, written on the message thread, read per block.
+    std::atomic<juce::RangedAudioParameter*> midiCCMap[128] {};
+    std::atomic<juce::RangedAudioParameter*> midiLearnTarget { nullptr };
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     juce::dsp::Chorus<float> chorus;

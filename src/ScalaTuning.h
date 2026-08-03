@@ -27,8 +27,13 @@ struct Tuning
 
     bool loadScl(const juce::File& file)
     {
-        juce::StringArray fileLines;
-        file.readLines(fileLines);
+        return loadSclText(file.loadFileAsString(), file.getFileNameWithoutExtension());
+    }
+
+    // Sessions embed the .scl text itself so they survive moving between machines.
+    bool loadSclText(const juce::String& text, const juce::String& scaleName)
+    {
+        auto fileLines = juce::StringArray::fromLines(text);
 
         juce::Array<double> cents;
         int notesPerOctave = -1;
@@ -96,7 +101,7 @@ struct Tuning
             freqs[note] = (float) (refFreq * std::exp2(c / 1200.0));
         }
 
-        name = file.getFileNameWithoutExtension();
+        name = scaleName;
         return true;
     }
 };

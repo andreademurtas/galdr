@@ -27,7 +27,7 @@ float arpBeats(int index)
 
 GaldrAudioProcessor::GaldrAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts(*this, nullptr, "PARAMETERS", createGaldrParameterLayout())
+      apvts(*this, &undoManager, "PARAMETERS", createGaldrParameterLayout())
 {
     settings.noteFreqs = tuning.freqs;
     settings.noteCounter = &noteSerial;
@@ -38,6 +38,18 @@ GaldrAudioProcessor::GaldrAudioProcessor()
     synth.addSound(new SynthSound());
 
     galdr::Wavetable::global(); // build the tables up front, off the audio thread
+
+    // any parameter edit marks the current preset as modified
+    for (auto* p : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p))
+            apvts.addParameterListener(rp->paramID, this);
+}
+
+GaldrAudioProcessor::~GaldrAudioProcessor()
+{
+    for (auto* p : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p))
+            apvts.removeParameterListener(rp->paramID, this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
@@ -425,8 +437,17 @@ void GaldrAudioProcessor::scanMidiControllers(const juce::MidiBuffer& midi)
     for (const auto metadata : midi)
     {
         const auto msg = metadata.getMessage();
-        if (msg.isController() && msg.getControllerNumber() == 1)
-            modWheel = (float) msg.getControllerValue() / 127.0f;
+        if (msg.isController())
+        {
+            const int cc = msg.getControllerNumber();
+            if (cc == 1)
+                modWheel = (float) msg.getControllerValue() / 127.0f;
+
+            if (auto* armed = midiLearnTarget.exchange(nullptr))
+                midiCCMap[cc].store(armed);
+            if (auto* mapped = midiCCMap[cc].load())
+                mapped->setValueNotifyingHost((float) msg.getControllerValue() / 127.0f);
+        }
         else if (msg.isChannelPressure())
             globalPressure = (float) msg.getChannelPressureValue() / 127.0f;
     }
@@ -861,28 +882,96 @@ void GaldrAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 void GaldrAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::MemoryOutputStream stream(destData, false);
-    apvts.copyState().writeToStream(stream);
+    captureFullState().writeToStream(stream);
 }
 
 void GaldrAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto tree = juce::ValueTree::readFromData(data, (size_t) sizeInBytes); tree.isValid())
-        apvts.replaceState(tree);
+        applyStateTree(tree);
+}
 
+juce::ValueTree GaldrAudioProcessor::capturePresetState()
+{
+    auto tree = apvts.copyState();
+    tree.setProperty("stateVersion", stateVersion, nullptr);
+    if (auto map = tree.getChildWithName("MIDIMAP"); map.isValid())
+        tree.removeChild(map, nullptr);
+    return tree;
+}
+
+juce::ValueTree GaldrAudioProcessor::captureFullState()
+{
+    auto tree = capturePresetState();
+    juce::ValueTree map("MIDIMAP");
+    for (int cc = 0; cc < 128; ++cc)
+        if (auto* p = midiCCMap[cc].load())
+            map.appendChild(juce::ValueTree("MAP", { { "cc", cc }, { "param", p->paramID } }), nullptr);
+    if (map.getNumChildren() > 0)
+        tree.appendChild(map, nullptr);
+    return tree;
+}
+
+// Migrations for states written by older builds. Old v0 states (no version
+// property) are already compatible parameter-wise; the hook exists so future
+// parameter renames or range changes never break saved sessions or presets.
+void GaldrAudioProcessor::migrateState(juce::ValueTree& state, int fromVersion)
+{
+    juce::ignoreUnused(state, fromVersion);
+}
+
+void GaldrAudioProcessor::applyStateTree(juce::ValueTree tree)
+{
+    if (! tree.isValid())
+        return;
+
+    migrateState(tree, (int) tree.getProperty("stateVersion", 0));
+
+    // Restore CC mappings only when the state carries them (host sessions do,
+    // preset files don't: loading a sound must not clobber the controller setup).
+    if (auto map = tree.getChildWithName("MIDIMAP"); map.isValid())
+    {
+        for (auto& slot : midiCCMap)
+            slot.store(nullptr);
+        for (const auto& m : map)
+        {
+            const int cc = (int) m.getProperty("cc", -1);
+            if (cc >= 0 && cc < 128)
+                midiCCMap[cc].store(apvts.getParameter(m.getProperty("param").toString()));
+        }
+        tree.removeChild(map, nullptr);
+    }
+    midiLearnTarget.store(nullptr);
+
+    apvts.replaceState(tree);
+
+    const auto tuningData = apvts.state.getProperty("tuningData").toString();
+    const auto tuningName = apvts.state.getProperty("tuningName").toString();
     const auto tuningPath = apvts.state.getProperty("tuningFile").toString();
-    if (tuningPath.isNotEmpty() && juce::File(tuningPath).existsAsFile())
-        tuning.loadScl(juce::File(tuningPath));
-    else
-        tuning.reset();
+    const bool embedded = tuningData.isNotEmpty()
+        && tuning.loadSclText(tuningData, tuningName.isNotEmpty() ? tuningName : "Custom");
+    if (! embedded)
+    {
+        if (tuningPath.isNotEmpty() && juce::File(tuningPath).existsAsFile())
+            tuning.loadScl(juce::File(tuningPath)); // legacy pre-v1 states stored the path only
+        else
+            tuning.reset();
+    }
+
+    presetDirty.store(false);
+    undoManager.clearUndoHistory();
 }
 
 bool GaldrAudioProcessor::loadTuning(const juce::File& sclFile)
 {
     galdr::Tuning candidate;
-    if (! candidate.loadScl(sclFile))
+    const auto text = sclFile.loadFileAsString();
+    if (! candidate.loadSclText(text, sclFile.getFileNameWithoutExtension()))
         return false;
     tuning = candidate;
     apvts.state.setProperty("tuningFile", sclFile.getFullPathName(), nullptr);
+    apvts.state.setProperty("tuningData", text, nullptr);
+    apvts.state.setProperty("tuningName", tuning.name, nullptr);
     return true;
 }
 
@@ -890,6 +979,28 @@ void GaldrAudioProcessor::resetTuning()
 {
     tuning.reset();
     apvts.state.removeProperty("tuningFile", nullptr);
+    apvts.state.removeProperty("tuningData", nullptr);
+    apvts.state.removeProperty("tuningName", nullptr);
+}
+
+void GaldrAudioProcessor::armMidiLearn(const juce::String& paramID)
+{
+    midiLearnTarget.store(apvts.getParameter(paramID));
+}
+
+int GaldrAudioProcessor::midiCCFor(const juce::String& paramID) const
+{
+    for (int cc = 0; cc < 128; ++cc)
+        if (auto* p = midiCCMap[cc].load(); p != nullptr && p->paramID == paramID)
+            return cc;
+    return -1;
+}
+
+void GaldrAudioProcessor::clearMidiCC(const juce::String& paramID)
+{
+    for (int cc = 0; cc < 128; ++cc)
+        if (auto* p = midiCCMap[cc].load(); p != nullptr && p->paramID == paramID)
+            midiCCMap[cc].store(nullptr);
 }
 
 juce::AudioProcessorEditor* GaldrAudioProcessor::createEditor()
