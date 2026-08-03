@@ -7,6 +7,21 @@ synthesizer plugin (VST3, CLAP, AU + standalone) with a black-metal soul, built 
 
 ![Galdr GUI](docs/screenshot.png)
 
+## Demo
+
+Hear the factory presets, rendered offline straight from the engine by
+`tools/RenderDemo.cpp` (no external processing):
+
+[Buzzsaw Wall](https://github.com/andreademurtas/galdr/releases/latest/download/01-buzzsaw-wall.mp3) ·
+[Frostbitten Pad](https://github.com/andreademurtas/galdr/releases/latest/download/02-frostbitten-pad.mp3) ·
+[Necro Lead](https://github.com/andreademurtas/galdr/releases/latest/download/03-necro-lead.mp3) ·
+[Cavern Drone](https://github.com/andreademurtas/galdr/releases/latest/download/04-cavern-drone.mp3) ·
+[Winter Sigil](https://github.com/andreademurtas/galdr/releases/latest/download/05-winter-sigil.mp3) ·
+[Frozen Choir](https://github.com/andreademurtas/galdr/releases/latest/download/06-frozen-choir.mp3) ·
+[Shrieking Gale](https://github.com/andreademurtas/galdr/releases/latest/download/07-shrieking-gale.mp3) ·
+[Arpeggiator](https://github.com/andreademurtas/galdr/releases/latest/download/08-arpeggiator.mp3) ·
+[full demo](https://github.com/andreademurtas/galdr/releases/latest/download/galdr-demo-full.mp3)
+
 ## Features
 
 - 12-voice engine with poly, mono and legato modes: two band-limited (PolyBLEP)

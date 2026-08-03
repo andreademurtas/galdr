@@ -81,6 +81,20 @@ jobs:
             tar czf "../../../dist/Galdr-$RUNNER_OS.tar.gz" $dirs
           fi
 
+      - name: Render audio demos
+        if: runner.os == 'Linux'
+        run: |
+          cmake --build build --config Release --parallel --target GaldrDemoRender
+          xvfb-run --auto-servernum ./build/GaldrDemoRender_artefacts/Release/GaldrDemoRender demo-out
+          i=0
+          while IFS='|' read -r _ name start dur; do
+            i=$((i+1))
+            slug=$(printf "%02d-%s" "$i" "$(echo "$name" | tr 'A-Z' 'a-z' | tr ' ' '-')")
+            ffmpeg -loglevel error -y -ss "$start" -t "$dur" -i demo-out/galdr-demo.wav \
+              -c:a libmp3lame -b:a 256k "dist/$slug.mp3"
+          done < demo-out/segments.txt
+          ffmpeg -loglevel error -y -i demo-out/galdr-demo.wav -c:a libmp3lame -b:a 256k dist/galdr-demo-full.mp3
+
       - uses: actions/upload-artifact@v4
         with:
           name: Galdr-${{ runner.os }}

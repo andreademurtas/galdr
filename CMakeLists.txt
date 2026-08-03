@@ -51,6 +51,25 @@ target_link_libraries(Galdr
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+# Offline demo renderer: plays the factory presets to a WAV for the demo video.
+# Built on demand, not part of the plugin targets.
+juce_add_console_app(GaldrDemoRender PRODUCT_NAME "GaldrDemoRender")
+set_target_properties(GaldrDemoRender PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_sources(GaldrDemoRender PRIVATE
+    tools/RenderDemo.cpp
+    src/PluginProcessor.cpp
+    src/PluginEditor.cpp)
+target_compile_definitions(GaldrDemoRender PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JucePlugin_Name="Galdr")
+target_link_libraries(GaldrDemoRender PRIVATE
+    GaldrAssets
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_recommended_config_flags)
+
 # CLAP export (MIT-licensed wrapper around the JUCE plugin target)
 add_subdirectory(modules/clap-juce-extensions EXCLUDE_FROM_ALL)
 clap_juce_extensions_plugin(TARGET Galdr
