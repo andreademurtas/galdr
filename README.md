@@ -19,7 +19,7 @@ Hear the factory presets, rendered offline straight from the engine by
 [Winter Sigil](https://github.com/andreademurtas/galdr/releases/latest/download/05-winter-sigil.mp3) ·
 [Frozen Choir](https://github.com/andreademurtas/galdr/releases/latest/download/06-frozen-choir.mp3) ·
 [Shrieking Gale](https://github.com/andreademurtas/galdr/releases/latest/download/07-shrieking-gale.mp3) ·
-[Arpeggiator](https://github.com/andreademurtas/galdr/releases/latest/download/08-arpeggiator.mp3) ·
+[Court of Icicles](https://github.com/andreademurtas/galdr/releases/latest/download/08-court-of-icicles.mp3) ·
 [full demo](https://github.com/andreademurtas/galdr/releases/latest/download/galdr-demo-full.mp3)
 
 ## Features
@@ -44,8 +44,9 @@ Hear the factory presets, rendered offline straight from the engine by
   dark FDN cavern reverb with predelay and octave-up shimmer
 - "Blizzard": a granular snowstorm texture layer
 - Tempo sync for LFOs, tremolo and delay (musical divisions of the host tempo)
-- Preset browser with factory and user presets, oscilloscope and spectrum
-  analyser, on-screen MIDI keyboard
+- 27 factory presets in categories (leads, basses, keys and bells, pads and
+  choirs, drones, textures, arpeggios) plus user preset save/load, oscilloscope
+  and spectrum analyser, on-screen MIDI keyboard
 - Dark-fantasy themed GUI, resizable, with tooltips
 - VST3, CLAP, AU (macOS) and standalone builds for Windows, macOS and Linux
 
