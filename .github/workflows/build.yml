@@ -39,7 +39,7 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Validate with pluginval
+      - name: Validate VST3 with pluginval
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -54,6 +54,37 @@ jobs:
             curl -sLO https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
             unzip -q -o pluginval_Linux.zip
             xvfb-run --auto-servernum ./pluginval --strictness-level 5 --validate "build/Galdr_artefacts/Release/VST3/Galdr.vst3"
+          fi
+
+      # pluginval has no CLAP support; clap-validator is the free-audio tool.
+      # Pinned to an exact release asset because the names carry a build suffix.
+      # The state-reproducibility tests are excluded: clap-juce-extensions (at
+      # upstream head) fails them for every JUCE/APVTS plugin, Galdr included;
+      # values restored via setStateInformation read back as defaults through
+      # the CLAP params extension. Re-enable once the wrapper is fixed upstream.
+      - name: Validate CLAP with clap-validator
+        shell: bash
+        run: |
+          base=https://github.com/free-audio/clap-validator/releases/download/0.4.1
+          stem=clap-validator-0.4.1-127-g152b982
+          mkdir -p validator
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl -sLO "$base/$stem-windows.zip"
+            7z x -y "$stem-windows.zip" -ovalidator > /dev/null
+            validator/clap-validator.exe validate -x state-reproducibility "build/Galdr_artefacts/Release/CLAP/Galdr.clap"
+          else
+            # The unix release zips wrap a tarball with the binary at binaries/clap-validator.
+            [ "$RUNNER_OS" = "macOS" ] && asset="$stem-macos-universal.zip" || asset="$stem-ubuntu-22.04.zip"
+            curl -sLO "$base/$asset"
+            unzip -q -o "$asset" -d validator
+            tar xzf "$(find validator -name '*.tar.gz' | head -1)" -C validator
+            bin=$(find validator -type f -name clap-validator | head -1)
+            chmod +x "$bin"
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              xvfb-run --auto-servernum "$bin" validate -x state-reproducibility "build/Galdr_artefacts/Release/CLAP/Galdr.clap"
+            else
+              "$bin" validate -x state-reproducibility "build/Galdr_artefacts/Release/CLAP/Galdr.clap"
+            fi
           fi
 
       - name: Package
