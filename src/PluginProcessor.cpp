@@ -78,7 +78,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
         .withValueFromStringFunction([](const String& text)
         {
             auto value = text.getFloatValue();
-            return value > 1.0f ? value / 100.0f : value;
+            if (text.contains("%") || std::abs(value) > 1.0f)
+                value /= 100.0f;
+            return value;
         });
 
     const auto hertz = AudioParameterFloatAttributes()
@@ -87,6 +89,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout createGaldrParameterLayout()
             if (value >= 1000.0f) return String(value / 1000.0f, 2) + " kHz";
             if (value >= 100.0f)  return String(roundToInt(value)) + " Hz";
             return String(value, 2) + " Hz";
+        })
+        .withValueFromStringFunction([](const String& text)
+        {
+            auto value = text.getFloatValue();
+            if (text.containsIgnoreCase("k"))
+                value *= 1000.0f;
+            return value;
         });
 
     const auto cents = AudioParameterFloatAttributes()
