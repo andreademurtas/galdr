@@ -167,7 +167,8 @@ int main(int argc, char* argv[])
     writer->flush();
     writer.reset();
 
-    outDir.getChildFile("segments.txt").replaceWithText(segLines);
+    // explicit "\n": JUCE would otherwise normalise line endings to CRLF
+    outDir.getChildFile("segments.txt").replaceWithText(segLines, false, false, "\n");
     std::cout << "wrote " << wavFile.getFullPathName().toRawUTF8()
               << " total=" << cursor << "s\n";
     return 0;

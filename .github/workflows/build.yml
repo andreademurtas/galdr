@@ -86,6 +86,7 @@ jobs:
         run: |
           cmake --build build --config Release --parallel --target GaldrDemoRender
           xvfb-run --auto-servernum ./build/GaldrDemoRender_artefacts/Release/GaldrDemoRender demo-out
+          sed -i 's/\r$//' demo-out/segments.txt
           i=0
           while IFS='|' read -r _ name start dur; do
             i=$((i+1))
