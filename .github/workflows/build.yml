@@ -90,10 +90,10 @@ jobs:
           while IFS='|' read -r _ name start dur; do
             i=$((i+1))
             slug=$(printf "%02d-%s" "$i" "$(echo "$name" | tr 'A-Z' 'a-z' | tr ' ' '-')")
-            ffmpeg -loglevel error -y -ss "$start" -t "$dur" -i demo-out/galdr-demo.wav \
+            ffmpeg -nostdin -loglevel error -y -ss "$start" -t "$dur" -i demo-out/galdr-demo.wav \
               -c:a libmp3lame -b:a 256k "dist/$slug.mp3"
           done < demo-out/segments.txt
-          ffmpeg -loglevel error -y -i demo-out/galdr-demo.wav -c:a libmp3lame -b:a 256k dist/galdr-demo-full.mp3
+          ffmpeg -nostdin -loglevel error -y -i demo-out/galdr-demo.wav -c:a libmp3lame -b:a 256k dist/galdr-demo-full.mp3
 
       - uses: actions/upload-artifact@v4
         with:
